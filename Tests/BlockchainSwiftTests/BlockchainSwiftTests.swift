@@ -5,11 +5,11 @@ final class BlockchainSwiftTests: XCTestCase {
     func testTxSigning() throws {
         let wallet1 = Wallet()!
         let wallet2 = Wallet()!
-        
+
         // Wallet 2 will try to steal all of Wallet 1's balance, which is here set to 100
         let wallet1utxo = TransactionOutput(value: 100, address: wallet1.address)
         let originalOutputData = wallet1utxo.serialized().sha256()
-        
+
         // Create a transaction and sign it, making sure first the sender has the right to claim the spendale outputs
         let signature1 = try wallet1.sign(utxo: wallet1utxo)
         let signature2 = try wallet2.sign(utxo: wallet1utxo)
@@ -18,48 +18,117 @@ final class BlockchainSwiftTests: XCTestCase {
         XCTAssert(verified1, "Wallet1 should have been verified")
         XCTAssert(!verified2, "Wallet2 should not have been verified")
     }
-    
+
     func testTx() throws {
         // Two wallets, one blockchain
-        let wallet1 = Wallet()!
-        let wallet2 = Wallet()!
-        let blockchain = Blockchain(minerAddress: wallet1.address)
+        let node1 = Node(address: NodeAddress.centralAddress())
+        let node2 = Node(address: NodeAddress(host: "localhost", port: 1337))
+        let _ = node1.mineBlock()
         
         // Wallet1 has mined genesis block, and should have gotten the reward
-        XCTAssert(blockchain.balance(for: wallet1.address) == blockchain.currentBlockValue())
+        XCTAssert(node1.blockchain.balance(for: node1.wallet.address) == node1.blockchain.currentBlockValue())
         // Wallet2 is broke
-        XCTAssert(blockchain.balance(for: wallet2.address) == 0)
-        
+        XCTAssert(node1.blockchain.balance(for: node2.wallet.address) == 0)
+
         // Send 1000 from Wallet1 to Wallet2, and again let wallet1 mine the next block
-        let _ = try blockchain.createTransaction(sender: wallet1, recipientAddress: wallet2.address, value: 1000)
-        XCTAssert(blockchain.mempool.count == 1) // One Tx should be in the pool, ready to go into the next block when mined
-        let _ = blockchain.mineBlock(previousHash: blockchain.lastBlock().hash, minerAddress: wallet1.address)
-        XCTAssert(blockchain.mempool.count == 0) // Tx pool should now be clear
-        
+        let _ = try node1.createTransaction(recipientAddress: node2.wallet.address, value: 1000)
+        XCTAssert(node1.mempool.count == 1) // One Tx should be in the pool, ready to go into the next block when mined
+        let _ = node1.mineBlock()
+        XCTAssert(node1.mempool.count == 0) // Tx pool should now be clear
+
         // Wallet1 should now have a balance == two block rewards - 1000
-        XCTAssert(blockchain.balance(for: wallet1.address) == (blockchain.currentBlockValue() * 2) - 1000)
+        XCTAssert(node1.blockchain.balance(for: node1.wallet.address) == (node1.blockchain.currentBlockValue() * 2) - 1000)
         // Wallet 2 should have a balance == 1000
-        XCTAssert(blockchain.balance(for: wallet2.address) == 1000)
-        
+        XCTAssert(node1.blockchain.balance(for: node2.wallet.address) == 1000)
+
         // Attempt to send more from Wallet1 than it currently has, expect failure
         do {
-            try blockchain.createTransaction(sender: wallet1, recipientAddress: wallet2.address, value: UInt64.max)
+            let _ = try node1.createTransaction(recipientAddress: node2.wallet.address, value: UInt64.max)
             XCTAssert(false, "Overdraft")
         } catch { }
-        
+
         // Check sanity of utxo state, ensuring Wallet1 and Wallet2 has rights to their unspent outputs
-        let utxosWallet1 = blockchain.utxos.filter { $0.address == wallet1.address }
-        let utxosWallet2 = blockchain.utxos.filter { $0.address == wallet2.address }
-        XCTAssert(wallet1.canUnlock(utxos: utxosWallet1))
-        XCTAssert(!wallet1.canUnlock(utxos: utxosWallet2))
-        XCTAssert(wallet2.canUnlock(utxos: utxosWallet2))
-        XCTAssert(!wallet2.canUnlock(utxos: utxosWallet1))
+        let utxosWallet1 = node1.blockchain.findSpendableOutputs(for: node1.wallet.address)
+        let utxosWallet2 = node1.blockchain.findSpendableOutputs(for: node2.wallet.address)
+        XCTAssert(node1.wallet.canUnlock(utxos: utxosWallet1))
+        XCTAssert(!node1.wallet.canUnlock(utxos: utxosWallet2))
+        XCTAssert(node2.wallet.canUnlock(utxos: utxosWallet2))
+        XCTAssert(!node2.wallet.canUnlock(utxos: utxosWallet1))
     }
     
-    
+    func testNetworkSync() {
+        // Set up our network of 3 nodes, and letting the first node mine the genesis block
+        // Excpect the genesis block to propagate to all nodes
+        let initialSync = XCTestExpectation(description: "Initial sync")
+        let node1 = Node(address: NodeAddress.centralAddress())
+        let _ = node1.mineBlock()
+        let node2 = Node(address: NodeAddress(host: "localhost", port: 1337))
+        let node3 = Node(address: NodeAddress(host: "localhost", port: 7331))
+        DispatchQueue.global().async {
+            while true {
+                if node2.blockchain.blocks.count == 1 && node3.blockchain.blocks.count == 1 {
+                    initialSync.fulfill()
+                    break
+                }
+            }
+        }
+        wait(for: [initialSync], timeout: 3)
+        
+        // Now create a transaction on node1 - from node1's wallet to node'2s wallet
+        // Expect everyone's mempool to update with the new transaction
+        let txSync = XCTestExpectation(description: "Sync transactions")
+        do {
+            let _ = try node1.createTransaction(recipientAddress: node2.wallet.address, value: 100)
+        } catch {
+            XCTAssert(false, "Overdraft")
+        }
+        DispatchQueue.global().async {
+            while true {
+                let requirements = [
+                    node1.mempool.count == node2.mempool.count,
+                    node2.mempool.count == node3.mempool.count,
+                    node3.mempool.count == 1
+                ]
+                if requirements.allSatisfy({ $0 == true}) {
+                    txSync.fulfill()
+                    break
+                }
+            }
+        }
+        wait(for: [txSync], timeout: 3)
+        
+        // Now let node2 mine the next block, claiming the Coinbase reward as well as receiving 100 from the above transaction
+        // Expect every node's blocks to update, and everyones utxos to update appropriately
+        let mineSync = XCTestExpectation(description: "Mining sync")
+        let _ = node2.mineBlock()
+        DispatchQueue.global().async {
+            while true {
+                let requirements = [
+                    node1.blockchain.blocks.count == node2.blockchain.blocks.count,
+                    node2.blockchain.blocks.count == node3.blockchain.blocks.count,
+                    node3.blockchain.blocks.count == 2,
+                    
+                    node1.blockchain.balance(for: node2.wallet.address) == node2.blockchain.balance(for: node2.wallet.address),
+                    node2.blockchain.balance(for: node2.wallet.address) == node3.blockchain.balance(for: node2.wallet.address),
+                    node1.blockchain.balance(for: node2.wallet.address) == node1.blockchain.currentBlockValue() + 100,
+                    
+                    node1.blockchain.balance(for: node1.wallet.address) == node1.blockchain.currentBlockValue() - 100,
+                    node2.blockchain.balance(for: node1.wallet.address) == node2.blockchain.currentBlockValue() - 100,
+                    node3.blockchain.balance(for: node1.wallet.address) == node3.blockchain.currentBlockValue() - 100
+                ]
+                if requirements.allSatisfy({ $0 == true}) {
+                    mineSync.fulfill()
+                    break
+                }
+            }
+        }
+        wait(for: [mineSync], timeout: 3)
+
+    }
     static let allTests = [
         ("testTxSigning", testTxSigning),
-        ("testTx", testTx)
+        ("testTx", testTx),
+        ("testNetworkSync", testNetworkSync)
     ]
 
 }

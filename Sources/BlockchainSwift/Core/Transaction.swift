@@ -7,7 +7,7 @@
 
 import Foundation
 
-public struct Transaction: Serializable {
+public struct Transaction: Codable, Serializable {
     /// Transaction inputs, which are sources for coins
     public let inputs: [TransactionInput]
     
@@ -46,5 +46,11 @@ public struct Transaction: Serializable {
         let txIns:[TransactionInput] = [coinbaseTxIn]
         let txOuts:[TransactionOutput] = [TransactionOutput(value: blockValue, address: address)]
         return Transaction(inputs: txIns, outputs: txOuts)
+    }
+}
+
+extension Transaction: Equatable {
+    public static func == (lhs: Transaction, rhs: Transaction) -> Bool {
+        return lhs.txHash == rhs.txHash
     }
 }

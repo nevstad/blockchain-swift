@@ -7,7 +7,7 @@
 
 import Foundation
 
-public struct Block: Serializable {
+public struct Block: Codable, Serializable {
     /// The timestamp for when the block was generated and added to the chain
     public let timestamp: UInt32
     

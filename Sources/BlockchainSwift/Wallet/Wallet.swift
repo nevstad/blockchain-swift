@@ -37,7 +37,7 @@ public class Wallet {
         for (i, utxo) in utxos.enumerated() {
             // Sign transaction hash
             var error: Unmanaged<CFError>?
-            let txOutputDataHash = utxo.serialized().sha256()
+            let txOutputDataHash = utxo.hash
             guard let signature = SecKeyCreateSignature(self.secPrivateKey,
                                                         .ecdsaSignatureDigestX962SHA256,
                                                         txOutputDataHash as CFData,
@@ -65,16 +65,9 @@ public class Wallet {
         return signature
     }
     
-    public func canUnlock(utxo: TransactionOutput) -> Bool {
-        return utxo.address == self.address
-    }
-
     public func canUnlock(utxos: [TransactionOutput]) -> Bool {
-        for utxo in utxos {
-            if !canUnlock(utxo: utxo) {
-                return false
-            }
-        }
-        return true
+        return utxos.reduce(true, { (res, output) -> Bool in
+            return res && output.isLockedWith(publicKeyHash: self.address)
+        })
     }
 }

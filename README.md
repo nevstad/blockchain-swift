@@ -1,23 +1,22 @@
-# ⛓ A simple Blockchain implementation for macOS, written in Swift.
+# ⛓ A simple Blockchain implementation written in Swift.
 
 A Blockchain implementation that loosely mimics Bitcoin's key features.
 
 ## ✅ Features
 
-* 🎭 Secure and anonymous Wallets
+* 🎭 Secure and Anonymous Wallets
 * 🔐 Verified Transations
-* 🛠 A Proof-of-Work system
-
+* 🛠 Proof-of-Work System
+* 🌐 Simple Decentralization
 
 ## ⛔️ Missing features: 
 
 * 🗄 Persistent block store
-* 🌐 Decentralization
 
 ## 🚦 Requirements
 
 * ✓ Swift 4.0+
-* ✓ macOS 10.12+, iOS 10.0+, tvOS 10.0+
+* ✓ macOS 10.14+, iOS 12.0+, tvOS 12.0+
 
 
 ## 📣 Shoutout
