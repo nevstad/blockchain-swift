@@ -8,7 +8,7 @@
 import Foundation
 
 /// Inputs to a transaction
-public struct TransactionInput: Serializable {
+public struct TransactionInput: Codable, Serializable {
     // A reference to the previous Transaction output
     public let previousOutput: TransactionOutPoint
     

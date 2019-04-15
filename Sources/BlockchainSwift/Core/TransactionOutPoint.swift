@@ -8,7 +8,7 @@
 import Foundation
 
 /// The out-point of a transaction, referened in TransactionInput
-public struct TransactionOutPoint: Serializable {
+public struct TransactionOutPoint: Codable, Serializable {
     /// The hash of the referenced transaction
     public let hash: Data
     

@@ -52,7 +52,7 @@ public struct ProofOfWork {
     }
     
     /// Builds data based on a previousHash, nonce and Block data, to be used for generating hashes
-    private func prepareData(prevHash: Data, nonce: UInt32, timestamp: UInt32, transactions: [Transaction]) -> Data {
+    public func prepareData(prevHash: Data, nonce: UInt32, timestamp: UInt32, transactions: [Transaction]) -> Data {
         var data = Data()
         data += prevHash
         data += nonce
@@ -65,8 +65,8 @@ public struct ProofOfWork {
     /// - SHA-256 Hashing this block's data should produce a valid PoW hash
     /// - Parameter block: The Block to validate
     /// - Returns: `true` if the block is valid, ie. PoW completed
-    public func validate(block: Block) -> Bool {
-        let data = prepareData(prevHash: block.previousHash, nonce: block.nonce, timestamp: block.timestamp, transactions: block.transactions)
+    public func validate(block: Block, previousHash: Data) -> Bool {
+        let data = prepareData(prevHash: previousHash, nonce: block.nonce, timestamp: block.timestamp, transactions: block.transactions)
         let hash = data.sha256()
         return validate(hash: hash)
     }

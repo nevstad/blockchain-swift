@@ -7,7 +7,7 @@
 
 import Foundation
 
-public struct TransactionOutput: Serializable {
+public struct TransactionOutput: Codable, Serializable {
     /// Transaction value
     public let value: UInt64
     
@@ -23,5 +23,9 @@ public struct TransactionOutput: Serializable {
     
     public var hash: Data {
         return serialized().sha256()
+    }
+    
+    public func isLockedWith(publicKeyHash: Data)  -> Bool {
+        return self.address == publicKeyHash
     }
 }

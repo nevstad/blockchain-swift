@@ -11,7 +11,7 @@ protocol Serializable {
     func serialized() -> Data
 }
 protocol Deserializable {
-    func deserialized() -> Self
+    static func deserialize(_ data: Data) throws -> Self
 }
 
 protocol BinaryConvertible {
