@@ -13,30 +13,48 @@ final class ECDSA {
     private static let keychainAttrLabel = "BlockchainSwift Wallet" as CFString
     private static let keychainAttrApplicationTag = "BlockchainSwift".data(using: .utf8)!
     
+    public static func generateKeyPair(from data: Data) -> KeyPair? {
+        let query: [String: Any] = [
+            kSecAttrKeyType as String: kSecAttrKeyTypeEC,
+            kSecAttrLabel as String: keychainAttrLabel,
+            kSecAttrApplicationTag as String: keychainAttrApplicationTag,
+            kSecAttrKeySizeInBits as String: 256,
+            kSecPrivateKeyAttrs as String: [
+                kSecAttrIsPermanent as String: false
+            ],
+            kSecPublicKeyAttrs as String: [
+                kSecAttrIsPermanent as String: false
+            ]
+        ]
+        var error: Unmanaged<CFError>?
+        guard let privateKey = SecKeyCreateFromData(query as CFDictionary, data as CFData, &error),
+            let publicKey = SecKeyCopyPublicKey(privateKey) else {
+                return nil
+        }
+
+        return (privateKey: privateKey, publicKey: publicKey)
+    }
+    
     /// Generate a ECDSA key-pair
     public static func generateKeyPair() -> KeyPair? {
         let query: [String: Any] = [
             kSecAttrKeyType as String: kSecAttrKeyTypeEC,
             kSecAttrLabel as String: keychainAttrLabel,
-            kSecAttrApplicationTag as String: keychainAttrApplicationTag,
-            kSecAttrIsPermanent as String: kCFBooleanFalse,
-            kSecAttrKeySizeInBits as String: 256 as AnyObject
+            kSecAttrKeySizeInBits as String: 256,
+            kSecPrivateKeyAttrs as String: [
+                kSecAttrIsPermanent as String: false
+            ],
+            kSecPublicKeyAttrs as String: [
+                kSecAttrIsPermanent as String: false
+            ]
         ]
-        var privateKey: SecKey?
-        var publicKey: SecKey?
-        let status = SecKeyGeneratePair(query as CFDictionary, &publicKey, &privateKey)
-        
-        guard status == errSecSuccess else {
-            print("Could not generate keypair")
-            return nil
+        var error: Unmanaged<CFError>?
+        guard let privateKey = SecKeyCreateRandomKey(query as CFDictionary, &error),
+            let publicKey = SecKeyCopyPublicKey(privateKey) else {
+                return nil
         }
         
-        guard let privKey = privateKey, let pubKey = publicKey else {
-            print("Keypair null")
-            return nil
-        }
-        
-        return (privateKey: privKey, publicKey: pubKey)
+        return (privateKey: privateKey, publicKey: publicKey)
     }
     
     /// Copies the specified SecKey into an external Data format
