@@ -6,14 +6,20 @@
 //
 
 import Foundation
-import CommonCrypto
 
 final class ECDSA {
     typealias KeyPair = (privateKey: SecKey, publicKey: SecKey)
     
+    private static let keychainAttrLabel = "BlockchainSwift Wallet" as CFString
+    private static let keychainAttrApplicationTag = "BlockchainSwift".data(using: .utf8)!
+    
+    /// Generate a ECDSA key-pair
     public static func generateKeyPair() -> KeyPair? {
         let query: [String: Any] = [
             kSecAttrKeyType as String: kSecAttrKeyTypeEC,
+            kSecAttrLabel as String: keychainAttrLabel,
+            kSecAttrApplicationTag as String: keychainAttrApplicationTag,
+            kSecAttrIsPermanent as String: kCFBooleanFalse,
             kSecAttrKeySizeInBits as String: 256 as AnyObject
         ]
         var privateKey: SecKey?
@@ -33,6 +39,7 @@ final class ECDSA {
         return (privateKey: privKey, publicKey: pubKey)
     }
     
+    /// Copies the specified SecKey into an external Data format
     public static func copyExternalRepresentation(key: SecKey) -> Data? {
         var error: Unmanaged<CFError>?
         guard
@@ -44,6 +51,10 @@ final class ECDSA {
         return keyCopy
     }
     
+    /// Verifies that the specified publicKey's privateKey was used to create the signature based on the data
+    /// - Parameter publicKey: The publicKey whose privateKey supposedly signed the data
+    /// - Parameter data: The data that was signed
+    /// - Parameter signature: 
     public static func verify(publicKey: Data, data: Data, signature: Data) -> Bool {
         let attributes: [String:Any] = [
             kSecAttrKeyClass as String: kSecAttrKeyClassPublic,

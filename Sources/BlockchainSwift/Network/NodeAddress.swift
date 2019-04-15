@@ -25,7 +25,7 @@ public struct NodeAddress: Codable {
 
 extension NodeAddress: Equatable {
     public static func == (lhs: NodeAddress, rhs: NodeAddress) -> Bool {
-        return lhs.port == rhs.port //&& lhs.host == rhs.host
+        return lhs.port == rhs.port && lhs.host == rhs.host
     }
 }
 

@@ -29,33 +29,25 @@ public class Wallet {
         }
     }
 
-    /// Signs a Transaction
-    /// - Unspent transaction outputs (txos) represent spendable coins
+    /// Signs a Transaction's inputs with this Wallet's privateKey
+    /// - Parameter utxos: Unspent transaction outputs (utxo) represent spendable coins
     public func sign(utxos: [TransactionOutput]) throws -> [TransactionInput] {
-        // Define Transaction
         var signedInputs = [TransactionInput]()
         for (i, utxo) in utxos.enumerated() {
-            // Sign transaction hash
-            var error: Unmanaged<CFError>?
-            let txOutputDataHash = utxo.hash
-            guard let signature = SecKeyCreateSignature(self.secPrivateKey,
-                                                        .ecdsaSignatureDigestX962SHA256,
-                                                        txOutputDataHash as CFData,
-                                                        &error) as Data? else {
-                                                            throw error!.takeRetainedValue() as Error
-            }
-            // Update TransactionInput
-            let prevOut = TransactionOutPoint(hash: txOutputDataHash, index: UInt32(i))
+            let signature = try sign(utxo: utxo)
+            let prevOut = TransactionOutPoint(hash: utxo.hash, index: UInt32(i))
             let signedTxIn = TransactionInput(previousOutput: prevOut, publicKey: self.publicKey, signature: signature)
             signedInputs.append(signedTxIn)
         }
         return signedInputs
     }
 
+    /// Signs a TransactionOutput with this Wallet's privateKey
+    /// - Parameter utxo: Unspent transaction output (utxo) represents spendable coins
     public func sign(utxo: TransactionOutput) throws -> Data {
         // Sign transaction hash
         var error: Unmanaged<CFError>?
-        let txOutputDataHash = utxo.serialized().sha256()
+        let txOutputDataHash = utxo.hash
         guard let signature = SecKeyCreateSignature(self.secPrivateKey,
                                                     .ecdsaSignatureDigestX962SHA256,
                                                     txOutputDataHash as CFData,
@@ -65,6 +57,7 @@ public class Wallet {
         return signature
     }
     
+    /// Checks if Unspent Transaction Outputs (utxo) can be unlocked by this Wallet
     public func canUnlock(utxos: [TransactionOutput]) -> Bool {
         return utxos.reduce(true, { (res, output) -> Bool in
             return res && output.isLockedWith(publicKeyHash: self.address)
