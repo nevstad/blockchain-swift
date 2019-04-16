@@ -32,7 +32,9 @@ public class NodeClient {
             } else {
                 print("Sent \(message)")
             }
+            connection.cancel()
         }))
+        
     }
     
     public func sendTransactionsMessage(_ transactionsMessage: TransactionsMessage, to: NodeAddress) {
@@ -44,6 +46,7 @@ public class NodeClient {
             } else {
                 print("Sent \(message)")
             }
+            connection.cancel()
         }))
     }
 
@@ -56,6 +59,7 @@ public class NodeClient {
             } else {
                 print("Sent \(message)")
             }
+            connection.cancel()
         }))
     }
     
@@ -68,7 +72,7 @@ public class NodeClient {
             } else {
                 print("Sent \(message)")
             }
+            connection.cancel()
         }))
     }
-
 }

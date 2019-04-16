@@ -7,6 +7,11 @@
 
 import Foundation
 
+protocol NodeDelegate {
+    func node(_ node: Node, didReceiveTransactions: [Transaction])
+    func node(_ node: Node, didReceiveBlocks: [Block])
+}
+
 /// In our simplistic network, we have _one_ central Node, with an arbitrary amount of Miners and Wallets.
 /// - Central: The hub which all others connect to, and is responsible for syncronizing data accross them. There can only be one.
 /// - Miner: Stores new transactions in a mempool, and will put them into blocks once mined. Needs to store the entire chainstate.
@@ -33,14 +38,15 @@ public class Node {
     public let blockchain: Blockchain
     
     /// Transaction pool holds all transactions to go into the next block
-    public var mempool = [Transaction]()
+    public var mempool: [Transaction]
 
     // The wallet associated with this Node
     public let wallet: Wallet
     
-    /// Network IO
-    var client: NodeClient
+    /// Listen for incoming connections
     let server: NodeServer
+    
+    var delegate: NodeDelegate?
 
     /// Transaction error types
     public enum TxError: Error {
@@ -52,13 +58,18 @@ public class Node {
     /// Create a new Node
     /// - Parameter address: This Node's address
     /// - Parameter wallet: This Node's wallet, created if nil
-    init(address: NodeAddress, wallet: Wallet? = nil) {
-        self.blockchain = Blockchain()
-        self.wallet = wallet ?? Wallet()!
+    init(address: NodeAddress, wallet: Wallet? = nil, loadState: Bool = true) {
         self.address = address
-        
-        // Set up client for outgoing requests
-        self.client = NodeClient()
+        if loadState {
+            let state = Node.loadState(address: address)
+            self.blockchain = state.blockchain ?? Blockchain()
+            self.mempool = state.mempool ?? [Transaction]()
+            self.wallet = state.wallet ?? Wallet()!
+        } else {
+            self.blockchain = Blockchain()
+            self.mempool = [Transaction]()
+            self.wallet = wallet ?? Wallet()!
+        }
         
         // Set up server to listen on incoming requests
         self.server = NodeServer(port: UInt16(address.port)) { newState in
@@ -71,7 +82,7 @@ public class Node {
         self.knownNodes.append(firstNodeAddr)
         if !self.address.isCentralNode {
             let versionMessage = VersionMessage(version: 1, blockHeight: self.blockchain.blocks.count, fromAddress: self.address)
-            self.client.sendVersionMessage(versionMessage, to: firstNodeAddr)
+            NodeClient().sendVersionMessage(versionMessage, to: firstNodeAddr)
         }
     }
     
@@ -113,14 +124,14 @@ public class Node {
 
         // Broadcast new transaction to network
         for node in knownNodes(except: [self.address]) {
-            client.sendTransactionsMessage(TransactionsMessage(transactions: [transaction], fromAddress: self.address), to: node)
+            NodeClient().sendTransactionsMessage(TransactionsMessage(transactions: [transaction], fromAddress: self.address), to: node)
         }
         
         return transaction
     }
 
     /// Attempts to mine the next block, placing Transactions currently in the mempool into the new block
-    public func mineBlock() -> Block? {
+    public func mineBlock() -> Block {
         // Caution: Beware of state change mid-mine, ie. new transaction or (even worse) a new block.
         //          We need to reset mining if a new block arrives, we have to remove txs from mempool that are in this new received block,
         //          and we must update utxos... When resolving conflicts, the block timestamp is relevant
@@ -149,7 +160,7 @@ public class Node {
         
         // Notify nodes about new block
         for node in self.knownNodes(except: [self.address]) {
-            self.client.sendBlocksMessage(BlocksMessage(blocks: [block], fromAddress: self.address), to: node)
+            NodeClient().sendBlocksMessage(BlocksMessage(blocks: [block], fromAddress: self.address), to: node)
         }
         
         return block
@@ -183,16 +194,17 @@ extension Node: NodeServerDelegate {
         if localVersion.blockHeight < message.blockHeight  {
             print("\t\t- Remote node has longer chain, requesting blocks")
             let getBlocksMessage = GetBlocksMessage(fromBlockHash: self.blockchain.lastBlockHash(), fromAddress: self.address)
-            self.client.sendGetBlocksMessage(getBlocksMessage, to: message.fromAddress)
+            NodeClient().sendGetBlocksMessage(getBlocksMessage, to: message.fromAddress)
         } else if localVersion.blockHeight > message.blockHeight {
             print("\t\t- Remote node has shorter chain, sending version")
-            self.client.sendVersionMessage(localVersion, to: message.fromAddress)
+            NodeClient().sendVersionMessage(localVersion, to: message.fromAddress)
         }
     }
     
     public func didReceiveTransactionsMessage(_ message: TransactionsMessage) {
         print("* Node \(self.address.urlString) received transactions from \(message.fromAddress.urlString)")
 
+        var verifiedTransactions = [Transaction]()
         // Verify and add transactions to blockchain
         for transaction in message.transactions {
             let verifiedInputs = transaction.inputs.filter { input in
@@ -201,16 +213,22 @@ extension Node: NodeServerDelegate {
             }
             if verifiedInputs.count == transaction.inputs.count {
                 print("\t- Added transaction \(transaction)")
-                self.mempool.append(transaction)
+                verifiedTransactions.append(transaction)
             } else {
                 print("\t- Unable to verify transaction \(transaction)")
             }
         }
-
+        
+        // Add verified transactions to mempool
+        self.mempool.append(contentsOf: verifiedTransactions)
+        
+        // Inform delegate
+        self.delegate?.node(self, didReceiveTransactions: verifiedTransactions)
+        
         // Central node is responsible for distributing the new transactions (nodes will handle verification internally)
         if self.address.isCentralNode {
             for node in knownNodes(except: [self.address, message.fromAddress])  {
-                self.client.sendTransactionsMessage(message, to: node)
+                NodeClient().sendTransactionsMessage(message, to: node)
             }
         }
     }
@@ -218,13 +236,13 @@ extension Node: NodeServerDelegate {
     public func didReceiveGetBlocksMessage(_ message: GetBlocksMessage) {
         print("* Node \(self.address.urlString) received getBlocks from \(message.fromAddress.urlString)")
         if message.fromBlockHash.isEmpty {
-            self.client.sendBlocksMessage(BlocksMessage(blocks: self.blockchain.blocks, fromAddress: self.address), to: message.fromAddress)
+            NodeClient().sendBlocksMessage(BlocksMessage(blocks: self.blockchain.blocks, fromAddress: self.address), to: message.fromAddress)
         }
         if let fromHashIndex = self.blockchain.blocks.firstIndex(where: { $0.hash == message.fromBlockHash }) {
             let requestedBlocks = Array<Block>(self.blockchain.blocks[fromHashIndex...])
             let blocksMessage = BlocksMessage(blocks: requestedBlocks, fromAddress: self.address)
             print("\t - Sending blocks message \(blocksMessage)")
-            self.client.sendBlocksMessage(blocksMessage, to: message.fromAddress)
+            NodeClient().sendBlocksMessage(blocksMessage, to: message.fromAddress)
         } else {
             print("\t - Unable to generate blocks message to satisfy \(message)")
         }
@@ -245,12 +263,128 @@ extension Node: NodeServerDelegate {
                 print("\t- Unable to verify block: \(block)")
             }
         }
+        
+        // Inform delegate
+        self.delegate?.node(self, didReceiveBlocks: validBlocks)
 
         // Central node is responsible for distributing the new transactions (nodes will handle verification internally)
         if self.address.isCentralNode && !validBlocks.isEmpty {
             for node in knownNodes(except: [self.address, message.fromAddress])  {
-                self.client.sendBlocksMessage(message, to: node)
+                NodeClient().sendBlocksMessage(message, to: node)
             }
         }
+    }
+}
+
+extension Node {
+    public func saveState() {
+        try? UserDefaultsBlockchainStore().save(self.blockchain)
+        try? UserDefaultsTransactionsStore().save(self.mempool)
+        try? UserDefaultsWalletStore().save(self.wallet)
+    }
+    
+    public func clearState() {
+        UserDefaultsBlockchainStore().clear()
+        UserDefaultsTransactionsStore().clear()
+        UserDefaultsWalletStore().clear()
+    }
+    
+    private static func loadState(address: NodeAddress) -> (blockchain: Blockchain?, mempool: [Transaction]?, wallet: Wallet?) {
+        let bc = UserDefaultsBlockchainStore().load()
+        let mp = UserDefaultsTransactionsStore().load()
+        let wl = UserDefaultsWalletStore().load()
+        return (blockchain: bc, mempool: mp, wallet: wl)
+    }
+}
+
+extension UserDefaults {
+    public static var blockchainSwift: UserDefaults {
+        return UserDefaults(suiteName: "BlockchainSwift")!
+    }
+    
+    internal enum DataStoreKey: String {
+        case blockchain, transactions, wallet
+    }
+    
+    internal func setData(_ data: Data?, forKey key: DataStoreKey) {
+        set(data, forKey: key.rawValue)
+    }
+    
+    internal func getData(forKey key: DataStoreKey) -> Data? {
+        return data(forKey: key.rawValue)
+    }
+}
+
+protocol BlockchainStore {
+    func save(_ blockchain: Blockchain) throws
+    func load() -> Blockchain?
+    func clear()
+}
+
+protocol TransactionsStore {
+    func save(_ transactions: [Transaction]) throws
+    func load() -> [Transaction]?
+    func clear()
+}
+
+protocol WalletStore {
+    func save(_ wallet: Wallet) throws
+    func load() -> Wallet?
+    func clear()
+}
+
+class UserDefaultsBlockchainStore: BlockchainStore {
+    func save(_ blockchain: Blockchain) throws {
+        UserDefaults.blockchainSwift.setData(try JSONEncoder().encode(blockchain), forKey: .blockchain)
+    }
+    
+    func load() -> Blockchain? {
+        if let blockchainData = UserDefaults.blockchainSwift.getData(forKey: .blockchain) {
+            return try? JSONDecoder().decode(Blockchain.self, from: blockchainData)
+        } else {
+            return nil
+        }
+    }
+    
+    func clear() {
+        UserDefaults.blockchainSwift.setData(nil, forKey: .blockchain)
+    }
+}
+
+class UserDefaultsTransactionsStore: TransactionsStore {
+    func save(_ transactions: [Transaction]) throws {
+        UserDefaults.blockchainSwift.setData(try JSONEncoder().encode(transactions), forKey: .transactions)
+    }
+    
+    func load() -> [Transaction]? {
+        if let transactionsData = UserDefaults.blockchainSwift.getData(forKey: .transactions) {
+            return try? JSONDecoder().decode([Transaction].self, from: transactionsData)
+        } else {
+            return nil
+        }
+    }
+
+    func clear() {
+        UserDefaults.blockchainSwift.setData(nil, forKey: .transactions)
+    }
+}
+
+// TODO: It is obviously a bad idea to store the private key in this insecure manner
+class UserDefaultsWalletStore: WalletStore {
+    enum WalletStoreError: Error {
+        case saveError
+    }
+    func save(_ wallet: Wallet) throws {
+        guard let walletData = wallet.exportPrivateKey() else { throw WalletStoreError.saveError }
+        UserDefaults.blockchainSwift.setData(walletData, forKey: .wallet)
+    }
+    
+    func load() -> Wallet? {
+        guard let walletData = UserDefaults.blockchainSwift.getData(forKey: .wallet) else { return nil }
+        return Wallet(privateKeyData: walletData)
+    }
+
+    func clear() {
+        UserDefaults.blockchainSwift.setData(nil, forKey: .wallet)
     }
 }

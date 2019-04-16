@@ -7,7 +7,7 @@
 
 import Foundation
 
-public class Blockchain {
+public class Blockchain: Codable {
     // Coin specifics, stolen from Bitcoin
     public enum Coin {
         static let satosis: UInt64 = 100_000_000
@@ -43,7 +43,7 @@ public class Blockchain {
     public func currentBlockValue() -> UInt64 {
         return Coin.blockReward(at: UInt64(self.blocks.count))
     }
-
+    
     /// Create a new block in the chain
     /// - Parameter nonce: The Block nonce after successful PoW
     /// - Parameter hash: The Block hash after successful PoW
