@@ -7,6 +7,11 @@
 
 import Foundation
 
+protocol NodeDelegate {
+    func node(_ node: Node, didReceiveTransactions: [Transaction])
+    func node(_ node: Node, didReceiveBlocks: [Block])
+}
+
 /// In our simplistic network, we have _one_ central Node, with an arbitrary amount of Miners and Wallets.
 /// - Central: The hub which all others connect to, and is responsible for syncronizing data accross them. There can only be one.
 /// - Miner: Stores new transactions in a mempool, and will put them into blocks once mined. Needs to store the entire chainstate.
@@ -40,6 +45,8 @@ public class Node {
     
     /// Listen for incoming connections
     let server: NodeServer
+    
+    var delegate: NodeDelegate?
 
     /// Transaction error types
     public enum TxError: Error {
@@ -124,7 +131,7 @@ public class Node {
     }
 
     /// Attempts to mine the next block, placing Transactions currently in the mempool into the new block
-    public func mineBlock() -> Block? {
+    public func mineBlock() -> Block {
         // Caution: Beware of state change mid-mine, ie. new transaction or (even worse) a new block.
         //          We need to reset mining if a new block arrives, we have to remove txs from mempool that are in this new received block,
         //          and we must update utxos... When resolving conflicts, the block timestamp is relevant
@@ -197,6 +204,7 @@ extension Node: NodeServerDelegate {
     public func didReceiveTransactionsMessage(_ message: TransactionsMessage) {
         print("* Node \(self.address.urlString) received transactions from \(message.fromAddress.urlString)")
 
+        var verifiedTransactions = [Transaction]()
         // Verify and add transactions to blockchain
         for transaction in message.transactions {
             let verifiedInputs = transaction.inputs.filter { input in
@@ -205,12 +213,18 @@ extension Node: NodeServerDelegate {
             }
             if verifiedInputs.count == transaction.inputs.count {
                 print("\t- Added transaction \(transaction)")
-                self.mempool.append(transaction)
+                verifiedTransactions.append(transaction)
             } else {
                 print("\t- Unable to verify transaction \(transaction)")
             }
         }
-
+        
+        // Add verified transactions to mempool
+        self.mempool.append(contentsOf: verifiedTransactions)
+        
+        // Inform delegate
+        self.delegate?.node(self, didReceiveTransactions: verifiedTransactions)
+        
         // Central node is responsible for distributing the new transactions (nodes will handle verification internally)
         if self.address.isCentralNode {
             for node in knownNodes(except: [self.address, message.fromAddress])  {
@@ -249,6 +263,9 @@ extension Node: NodeServerDelegate {
                 print("\t- Unable to verify block: \(block)")
             }
         }
+        
+        // Inform delegate
+        self.delegate?.node(self, didReceiveBlocks: validBlocks)
 
         // Central node is responsible for distributing the new transactions (nodes will handle verification internally)
         if self.address.isCentralNode && !validBlocks.isEmpty {
