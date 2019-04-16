@@ -25,7 +25,7 @@ final class ECDSA {
         ]
     ]
     
-    /// Generates a random ECDSA key-pair
+    /// Attempts to generate a random ECDSA key-pair
     public static func generateKeyPair() -> KeyPair? {
         var error: Unmanaged<CFError>?
         guard let privateKey = SecKeyCreateRandomKey(keyGenParams as CFDictionary, &error),
@@ -37,13 +37,29 @@ final class ECDSA {
 
     /// Attempts to generate an ECDSA key-pair from the sepcified privateKey data
     /// - Parameter data: The private key data
-    public static func generateKeyPair(from data: Data) -> KeyPair? {
+    public static func generateKeyPair(privateKeyData: Data) -> KeyPair? {
+        let options: [String: Any] = [
+            kSecAttrKeyType as String: kSecAttrKeyTypeEC,
+            kSecAttrKeyClass as String: kSecAttrKeyClassPrivate,
+            kSecAttrKeySizeInBits as String : 256
+        ]
         var error: Unmanaged<CFError>?
-        guard let privateKey = SecKeyCreateFromData(keyGenParams as CFDictionary, data as CFData, &error),
-            let publicKey = SecKeyCopyPublicKey(privateKey) else {
-                return nil
+        guard let privateKey = SecKeyCreateWithData(privateKeyData as CFData,
+                                                    options as CFDictionary,
+                                                    &error) else {
+                                                        return nil
+        }
+        guard let publicKey = SecKeyCopyPublicKey(privateKey) else {
+            return nil
         }
         return (privateKey: privateKey, publicKey: publicKey)
+    }
+
+    /// Attempts to generate an ECDSA key-pair from the sepcified privateKey hex
+    /// - Parameter data: The private key hex
+    public static func generateKeyPair(privateKeyHex: String) -> KeyPair? {
+        guard let privateKeyData = Data(hex: privateKeyHex) else { return nil }
+        return generateKeyPair(privateKeyData: privateKeyData)
     }
     
     /// Copies the specified SecKey into an external Data format

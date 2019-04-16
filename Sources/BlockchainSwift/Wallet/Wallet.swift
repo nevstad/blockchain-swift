@@ -18,8 +18,35 @@ public class Wallet {
     /// This wallet's address in readable format, double SHA256 hash'ed
     public var address: Data
     
+    /// Initalizes a Wallet with randomly generated keys
     public init?() {
         if let keyPair = ECDSA.generateKeyPair(), let publicKeyCopy = ECDSA.copyExternalRepresentation(key: keyPair.publicKey) {
+            self.secPrivateKey = keyPair.privateKey
+            self.secPublicKey = keyPair.publicKey
+            self.publicKey = publicKeyCopy
+            self.address = self.publicKey.sha256().sha256()
+        } else {
+            return nil
+        }
+    }
+
+    /// Initalizes a Wallet with keys restored from private key data
+    /// - Parameter privateKeyData: The private key data
+    public init?(privateKeyData: Data) {
+        if let keyPair = ECDSA.generateKeyPair(privateKeyData: privateKeyData), let publicKeyCopy = ECDSA.copyExternalRepresentation(key: keyPair.publicKey) {
+            self.secPrivateKey = keyPair.privateKey
+            self.secPublicKey = keyPair.publicKey
+            self.publicKey = publicKeyCopy
+            self.address = self.publicKey.sha256().sha256()
+        } else {
+            return nil
+        }
+    }
+
+    /// Initalizes a Wallet with keys restored from private key hex
+    /// - Parameter privateKeyHex: The private key hex
+    public init?(privateKeyHex: String) {
+        if let keyPair = ECDSA.generateKeyPair(privateKeyHex: privateKeyHex), let publicKeyCopy = ECDSA.copyExternalRepresentation(key: keyPair.publicKey) {
             self.secPrivateKey = keyPair.privateKey
             self.secPublicKey = keyPair.publicKey
             self.publicKey = publicKeyCopy
