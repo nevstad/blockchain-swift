@@ -18,8 +18,35 @@ public class Wallet {
     /// This wallet's address in readable format, double SHA256 hash'ed
     public var address: Data
     
+    /// Initalizes a Wallet with randomly generated keys
     public init?() {
         if let keyPair = ECDSA.generateKeyPair(), let publicKeyCopy = ECDSA.copyExternalRepresentation(key: keyPair.publicKey) {
+            self.secPrivateKey = keyPair.privateKey
+            self.secPublicKey = keyPair.publicKey
+            self.publicKey = publicKeyCopy
+            self.address = self.publicKey.sha256().sha256()
+        } else {
+            return nil
+        }
+    }
+
+    /// Initalizes a Wallet with keys restored from private key data
+    /// - Parameter privateKeyData: The private key data
+    public init?(privateKeyData: Data) {
+        if let keyPair = ECDSA.generateKeyPair(privateKeyData: privateKeyData), let publicKeyCopy = ECDSA.copyExternalRepresentation(key: keyPair.publicKey) {
+            self.secPrivateKey = keyPair.privateKey
+            self.secPublicKey = keyPair.publicKey
+            self.publicKey = publicKeyCopy
+            self.address = self.publicKey.sha256().sha256()
+        } else {
+            return nil
+        }
+    }
+
+    /// Initalizes a Wallet with keys restored from private key hex
+    /// - Parameter privateKeyHex: The private key hex
+    public init?(privateKeyHex: String) {
+        if let keyPair = ECDSA.generateKeyPair(privateKeyHex: privateKeyHex), let publicKeyCopy = ECDSA.copyExternalRepresentation(key: keyPair.publicKey) {
             self.secPrivateKey = keyPair.privateKey
             self.secPublicKey = keyPair.publicKey
             self.publicKey = publicKeyCopy
@@ -45,16 +72,8 @@ public class Wallet {
     /// Signs a TransactionOutput with this Wallet's privateKey
     /// - Parameter utxo: Unspent transaction output (utxo) represents spendable coins
     public func sign(utxo: TransactionOutput) throws -> Data {
-        // Sign transaction hash
-        var error: Unmanaged<CFError>?
         let txOutputDataHash = utxo.hash
-        guard let signature = SecKeyCreateSignature(self.secPrivateKey,
-                                                    .ecdsaSignatureDigestX962SHA256,
-                                                    txOutputDataHash as CFData,
-                                                    &error) as Data? else {
-                                                        throw error!.takeRetainedValue() as Error
-        }
-        return signature
+        return try ECDSA.sign(data: txOutputDataHash, with: self.secPrivateKey)
     }
     
     /// Checks if Unspent Transaction Outputs (utxo) can be unlocked by this Wallet

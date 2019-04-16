@@ -2,7 +2,102 @@ import XCTest
 @testable import BlockchainSwift
 
 final class BlockchainSwiftTests: XCTestCase {
-    func testTxSigning() throws {
+    
+    func testKeyGenAndTxSigning() {
+        if let keyPair = ECDSA.generateKeyPair() {
+            if let pubKeyData = ECDSA.copyExternalRepresentation(key: keyPair.publicKey) {
+                let address = pubKeyData.sha256().sha256()
+                let utxo = TransactionOutput(value: 100, address: address)
+                let utxoHash = utxo.serialized().sha256()
+                // Create a transaction and sign it, making sure first the sender has the right to claim the spendale outputs
+                guard let signature1 = try? ECDSA.sign(data: utxoHash, with: keyPair.privateKey) else {
+                    XCTFail("Could not sign with original key")
+                    return
+                }
+                let verified1 = ECDSA.verify(publicKey: pubKeyData, data: utxoHash, signature: signature1)
+                XCTAssert(verified1, "Unable to verify signature1")
+            } else {
+                XCTFail("Failed to restore key pair")
+            }
+        } else {
+            XCTFail("Could not generate key pair")
+        }
+    }
+    
+    func testKeyRestoreData() {
+        if let keyPair = ECDSA.generateKeyPair(),
+            let privKeyData = ECDSA.copyExternalRepresentation(key: keyPair.privateKey),
+            let pubKeyData = ECDSA.copyExternalRepresentation(key: keyPair.publicKey) {
+            if let restoredKeyPair = ECDSA.generateKeyPair(privateKeyData: privKeyData),
+                let restoredPrivKeyData = ECDSA.copyExternalRepresentation(key: restoredKeyPair.privateKey),
+                let restoredPubKeyData = ECDSA.copyExternalRepresentation(key: restoredKeyPair.publicKey) {
+                XCTAssert(privKeyData.hex == restoredPrivKeyData.hex, "Mismatching private keys")
+                XCTAssert(pubKeyData.hex == restoredPubKeyData.hex, "Mismatching public keys")
+            } else {
+                XCTFail("Could not restore key pair")
+            }
+        } else {
+            XCTFail("Could not generate key pair")
+        }
+    }
+    
+    func testKeyRestoreHex() {
+        if let keyPair = ECDSA.generateKeyPair(),
+            let privKeyData = ECDSA.copyExternalRepresentation(key: keyPair.privateKey),
+            let pubKeyData = ECDSA.copyExternalRepresentation(key: keyPair.publicKey) {
+            if let restoredKeyPair = ECDSA.generateKeyPair(privateKeyHex: privKeyData.hex),
+                let restoredPrivKeyData = ECDSA.copyExternalRepresentation(key: restoredKeyPair.privateKey),
+                let restoredPubKeyData = ECDSA.copyExternalRepresentation(key: restoredKeyPair.publicKey) {
+                XCTAssert(privKeyData.hex == restoredPrivKeyData.hex, "Mismatching private keys")
+                XCTAssert(pubKeyData.hex == restoredPubKeyData.hex, "Mismatching public keys")
+            } else {
+                XCTFail("Could not restore key pair")
+            }
+        } else {
+            XCTFail("Could not generate key pair")
+        }
+    }
+    
+    func testKeyRestoreAndTxSigning() {
+        if let keyPair = ECDSA.generateKeyPair(),
+            let privKeyData = ECDSA.copyExternalRepresentation(key: keyPair.privateKey),
+            let pubKeyData = ECDSA.copyExternalRepresentation(key: keyPair.publicKey) {
+            if let restoredKeyPair = ECDSA.generateKeyPair(privateKeyData: privKeyData),
+                let restoredPrivKeyData = ECDSA.copyExternalRepresentation(key: restoredKeyPair.privateKey),
+                let restoredPubKeyData = ECDSA.copyExternalRepresentation(key: restoredKeyPair.publicKey) {
+                XCTAssert(privKeyData.hex == restoredPrivKeyData.hex, "Mismatching private keys")
+                XCTAssert(pubKeyData.hex == restoredPubKeyData.hex, "Mismatching public keys")
+                
+                let address = pubKeyData.sha256().sha256()
+                let restoredAddress = restoredPubKeyData.sha256().sha256()
+                XCTAssert(address == restoredAddress, "Mismatching addresses")
+                
+                let utxo = TransactionOutput(value: 100, address: address)
+                let utxoHash = utxo.serialized().sha256()
+                
+                // Create a transaction and sign it, making sure first the sender has the right to claim the spendale outputs
+                guard let signature = try? ECDSA.sign(data: utxoHash, with: keyPair.privateKey) else {
+                    XCTFail("Could not sign with original key")
+                    return
+                }
+                guard let restoredSignature = try? ECDSA.sign(data: utxoHash, with: restoredKeyPair.privateKey) else {
+                    XCTFail("Could not sign with restored key")
+                    return
+                }
+                let verified1 = ECDSA.verify(publicKey: pubKeyData, data: utxoHash, signature: signature)
+                let verified2 = ECDSA.verify(publicKey: pubKeyData, data: utxoHash, signature: restoredSignature)
+                let verified3 = ECDSA.verify(publicKey: restoredPubKeyData, data: utxoHash, signature: restoredSignature)
+                let verified4 = ECDSA.verify(publicKey: restoredPubKeyData, data: utxoHash, signature: signature)
+                XCTAssert(verified1 && verified2 && verified3 && verified4, "Original and restored keys are not fully interoperable")
+            } else {
+                XCTFail("Could not restore key pair")
+            }
+        } else {
+            XCTFail("Could not generate key pair")
+        }
+    }
+    
+    func testWalletTxSigning() throws {
         let wallet1 = Wallet()!
         let wallet2 = Wallet()!
 
@@ -19,7 +114,7 @@ final class BlockchainSwiftTests: XCTestCase {
         XCTAssert(!verified2, "Wallet2 should not have been verified")
     }
 
-    func testTx() throws {
+    func testTransactions() throws {
         // Two wallets, one blockchain
         let node1 = Node(address: NodeAddress.centralAddress())
         let node2 = Node(address: NodeAddress(host: "localhost", port: 1337))
@@ -56,7 +151,7 @@ final class BlockchainSwiftTests: XCTestCase {
         XCTAssert(!node2.wallet.canUnlock(utxos: utxosWallet1))
     }
     
-    func testNetworkSync() {
+    func testNodeNetwork() {
         // Set up our network of 3 nodes, and letting the first node mine the genesis block
         // Excpect the genesis block to propagate to all nodes
         let initialSync = XCTestExpectation(description: "Initial sync")
@@ -80,7 +175,7 @@ final class BlockchainSwiftTests: XCTestCase {
         do {
             let _ = try node1.createTransaction(recipientAddress: node2.wallet.address, value: 100)
         } catch {
-            XCTAssert(false, "Overdraft")
+            XCTFail("Overdraft")
         }
         DispatchQueue.global().async {
             while true {
@@ -123,12 +218,15 @@ final class BlockchainSwiftTests: XCTestCase {
             }
         }
         wait(for: [mineSync], timeout: 3)
-
     }
+
+
     static let allTests = [
-        ("testTxSigning", testTxSigning),
-        ("testTx", testTx),
-        ("testNetworkSync", testNetworkSync)
+        ("testKeyGenAndTxSigning", testKeyGenAndTxSigning),
+        ("testKeyRestoreAndTxSigning", testKeyRestoreAndTxSigning),
+        ("testWalletTxSigning", testWalletTxSigning),
+        ("testTransactions", testTransactions),
+        ("testNodeNetwork", testNodeNetwork)
     ]
 
 }
