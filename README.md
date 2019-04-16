@@ -8,10 +8,12 @@ A Blockchain implementation that loosely mimics Bitcoin's key features.
 * 🔐 Verified Transations
 * 🛠 Proof-of-Work System
 * 🌐 Simple Decentralization
+* 🗄 Persistent state
 
 ## ⛔️ Missing features: 
 
-* 🗄 Persistent block store
+* 🌐 P2P Decentralization
+* 🗄 Advanced Persistence
 
 ## 🚦 Requirements
 

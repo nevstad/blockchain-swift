@@ -7,9 +7,9 @@
 
 import Foundation
 
-public struct ProofOfWork {
+public struct ProofOfWork: Codable {
     
-    public struct Difficulty {
+    public struct Difficulty: Codable {
         let level: UInt32
         private let prefix: String
 

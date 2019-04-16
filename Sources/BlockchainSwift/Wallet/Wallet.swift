@@ -82,4 +82,9 @@ public class Wallet {
             return res && output.isLockedWith(publicKeyHash: self.address)
         })
     }
+    
+    /// Exports the private key as Data
+    public func exportPrivateKey() -> Data? {
+        return ECDSA.copyExternalRepresentation(key: self.secPrivateKey)
+    }
 }

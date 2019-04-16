@@ -116,8 +116,8 @@ final class BlockchainSwiftTests: XCTestCase {
 
     func testTransactions() throws {
         // Two wallets, one blockchain
-        let node1 = Node(address: NodeAddress.centralAddress())
-        let node2 = Node(address: NodeAddress(host: "localhost", port: 1337))
+        let node1 = Node(address: NodeAddress.centralAddress(), loadState: false)
+        let node2 = Node(address: NodeAddress(host: "localhost", port: 1337), loadState: false)
         let _ = node1.mineBlock()
         
         // Wallet1 has mined genesis block, and should have gotten the reward
@@ -155,10 +155,10 @@ final class BlockchainSwiftTests: XCTestCase {
         // Set up our network of 3 nodes, and letting the first node mine the genesis block
         // Excpect the genesis block to propagate to all nodes
         let initialSync = XCTestExpectation(description: "Initial sync")
-        let node1 = Node(address: NodeAddress.centralAddress())
+        let node1 = Node(address: NodeAddress.centralAddress(), loadState: false)
         let _ = node1.mineBlock()
-        let node2 = Node(address: NodeAddress(host: "localhost", port: 1337))
-        let node3 = Node(address: NodeAddress(host: "localhost", port: 7331))
+        let node2 = Node(address: NodeAddress(host: "localhost", port: 1337), loadState: false)
+        let node3 = Node(address: NodeAddress(host: "localhost", port: 7331), loadState: false)
         DispatchQueue.global().async {
             while true {
                 if node2.blockchain.blocks.count == 1 && node3.blockchain.blocks.count == 1 {
@@ -220,7 +220,30 @@ final class BlockchainSwiftTests: XCTestCase {
         wait(for: [mineSync], timeout: 3)
     }
 
+    func testNodeStatePersistence() {
+        // Create a Node, mine a block, and add a transaction - then persist it's state
+        let node = Node(address: NodeAddress(host: "localhost", port: 8080), loadState: false)
+        let _ = node.mineBlock()
+        let _ = try? node.createTransaction(recipientAddress: node.wallet.address, value: 1000)
+        node.saveState()
+        
+        // A new Node loadState true should get state from previous node
+        let node2 = Node(address: NodeAddress(host: "localhost", port: 8080), loadState: true)
+        XCTAssert(node.blockchain.blocks.count == node2.blockchain.blocks.count)
+        XCTAssert(node.mempool.count == node2.blockchain.blocks.count)
 
+        // A new node with loadState false should not share state
+        let node3 = Node(address: NodeAddress(host: "localhost", port: 1337), loadState: false)
+        XCTAssert(node3.blockchain.blocks.count == 0)
+        XCTAssert(node3.mempool.count == 0)
+
+        // After clearing the state of our first Node, a new node should load empty state
+        node.clearState()
+        let node5 = Node(address: NodeAddress(host: "localhost", port: 8080), loadState: true)
+        XCTAssert(node5.blockchain.blocks.count == 0)
+        XCTAssert(node5.mempool.count == 0)
+    }
+    
     static let allTests = [
         ("testKeyGenAndTxSigning", testKeyGenAndTxSigning),
         ("testKeyRestoreAndTxSigning", testKeyRestoreAndTxSigning),
