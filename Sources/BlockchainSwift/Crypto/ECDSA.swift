@@ -10,63 +10,60 @@ import Foundation
 final class ECDSA {
     typealias KeyPair = (privateKey: SecKey, publicKey: SecKey)
     
-    private static let keychainAttrLabel = "BlockchainSwift Wallet" as CFString
-    private static let keychainAttrApplicationTag = "BlockchainSwift".data(using: .utf8)!
-    
-    public static func generateKeyPair(from data: Data) -> KeyPair? {
-        let query: [String: Any] = [
-            kSecAttrKeyType as String: kSecAttrKeyTypeEC,
-            kSecAttrLabel as String: keychainAttrLabel,
-            kSecAttrApplicationTag as String: keychainAttrApplicationTag,
-            kSecAttrKeySizeInBits as String: 256,
-            kSecPrivateKeyAttrs as String: [
-                kSecAttrIsPermanent as String: false
-            ],
-            kSecPublicKeyAttrs as String: [
-                kSecAttrIsPermanent as String: false
-            ]
+    private static let keyGenParams: [String: Any] = [
+        kSecAttrKeyType as String: kSecAttrKeyTypeEC,
+        kSecAttrLabel as String: "BlockchainSwift Wallet" as CFString,
+        kSecAttrApplicationTag as String: "BlockchainSwift".data(using: .utf8)!,
+        kSecAttrKeySizeInBits as String: 256,
+        kSecPrivateKeyAttrs as String: [
+            kSecAttrIsPermanent as String: false,
+            kSecAttrApplicationTag as String: "BlockchainSwift Wallet Private Key".data(using: .utf8)!,
+        ],
+        kSecPublicKeyAttrs as String: [
+            kSecAttrIsPermanent as String: false,
+            kSecAttrApplicationTag as String: "BlockchainSwift Wallet Public Key".data(using: .utf8)!,
         ]
+    ]
+    
+    /// Generates a random ECDSA key-pair
+    public static func generateKeyPair() -> KeyPair? {
         var error: Unmanaged<CFError>?
-        guard let privateKey = SecKeyCreateFromData(query as CFDictionary, data as CFData, &error),
+        guard let privateKey = SecKeyCreateRandomKey(keyGenParams as CFDictionary, &error),
             let publicKey = SecKeyCopyPublicKey(privateKey) else {
                 return nil
         }
-
         return (privateKey: privateKey, publicKey: publicKey)
     }
-    
-    /// Generate a ECDSA key-pair
-    public static func generateKeyPair() -> KeyPair? {
-        let query: [String: Any] = [
-            kSecAttrKeyType as String: kSecAttrKeyTypeEC,
-            kSecAttrLabel as String: keychainAttrLabel,
-            kSecAttrKeySizeInBits as String: 256,
-            kSecPrivateKeyAttrs as String: [
-                kSecAttrIsPermanent as String: false
-            ],
-            kSecPublicKeyAttrs as String: [
-                kSecAttrIsPermanent as String: false
-            ]
-        ]
+
+    /// Attempts to generate an ECDSA key-pair from the sepcified privateKey data
+    /// - Parameter data: The private key data
+    public static func generateKeyPair(from data: Data) -> KeyPair? {
         var error: Unmanaged<CFError>?
-        guard let privateKey = SecKeyCreateRandomKey(query as CFDictionary, &error),
+        guard let privateKey = SecKeyCreateFromData(keyGenParams as CFDictionary, data as CFData, &error),
             let publicKey = SecKeyCopyPublicKey(privateKey) else {
                 return nil
         }
-        
         return (privateKey: privateKey, publicKey: publicKey)
     }
     
     /// Copies the specified SecKey into an external Data format
+    /// - Parameter key: The key to copy
     public static func copyExternalRepresentation(key: SecKey) -> Data? {
+        return SecKeyCopyExternalRepresentation(key, nil) as Data?
+    }
+    
+    /// Create a signature of the specified data using the specified private key
+    /// - Parameter data: The data to sign
+    /// - Parameter privateKey: The private key to sign with
+    public static func sign(data: Data, with privateKey: SecKey) throws -> Data {
         var error: Unmanaged<CFError>?
-        guard
-            let keyCopy = SecKeyCopyExternalRepresentation(key, &error) as Data?
-            else {
-                print("Could not copy key")
-                return nil
+        guard let signature = SecKeyCreateSignature(privateKey,
+                                                    .ecdsaSignatureDigestX962SHA256,
+                                                    data as CFData,
+                                                    &error) as Data? else {
+                                                        throw error!.takeRetainedValue() as Error
         }
-        return keyCopy
+        return signature
     }
     
     /// Verifies that the specified publicKey's privateKey was used to create the signature based on the data
@@ -89,4 +86,5 @@ final class ECDSA {
                                      signature as CFData,
                                      nil)
     }
+
 }
