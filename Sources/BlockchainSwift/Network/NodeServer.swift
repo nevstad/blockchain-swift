@@ -10,6 +10,7 @@ import Network
 
 public protocol NodeServerDelegate {
     func didReceiveVersionMessage(_ message: VersionMessage)
+    func didReceiveGetTransactionsMessage(_ message: GetTransactionsMessage)
     func didReceiveTransactionsMessage(_ message: TransactionsMessage)
     func didReceiveGetBlocksMessage(_ message: GetBlocksMessage)
     func didReceiveBlocksMessage(_ message: BlocksMessage)
@@ -31,25 +32,31 @@ public class NodeServer {
             if let strongSelf = self {
                 newConnection.receiveMessage { (data, context, isComplete, error) in
                     if let data = data, let message = try? Message.deserialize(data) {
-                        if message.command == Message.Commands.version.rawValue {
+                        if message.command == .version {
                             if let versionMessage = try? VersionMessage.deserialize(message.payload) {
                                 strongSelf.delegate?.didReceiveVersionMessage(versionMessage)
                             } else {
                                 print("Error: Received malformed \(message.command) message")
                             }
-                        } else if message.command == Message.Commands.transactions.rawValue {
+                        } else if message.command == .getTransactions {
+                            if let getTransactionsMessage = try? GetTransactionsMessage.deserialize(message.payload) {
+                                strongSelf.delegate?.didReceiveGetTransactionsMessage(getTransactionsMessage)
+                            } else {
+                                print("Error: Received malformed \(message.command) message")
+                            }
+                        }else if message.command == .transactions {
                             if let transactionsMessage = try? TransactionsMessage.deserialize(message.payload) {
                                 strongSelf.delegate?.didReceiveTransactionsMessage(transactionsMessage)
                             } else {
                                 print("Error: Received malformed \(message.command) message")
                             }
-                        } else if message.command == Message.Commands.getBlocks.rawValue {
-                            if let blocksMessage = try? GetBlocksMessage.deserialize(message.payload) {
-                                strongSelf.delegate?.didReceiveGetBlocksMessage(blocksMessage)
+                        } else if message.command == .getBlocks {
+                            if let getBlocksMessage = try? GetBlocksMessage.deserialize(message.payload) {
+                                strongSelf.delegate?.didReceiveGetBlocksMessage(getBlocksMessage)
                             } else {
                                 print("Error: Received malformed \(message.command) message")
                             }
-                        } else if message.command == Message.Commands.blocks.rawValue {
+                        } else if message.command == .blocks {
                             if let blocksMessage = try? BlocksMessage.deserialize(message.payload) {
                                 strongSelf.delegate?.didReceiveBlocksMessage(blocksMessage)
                             } else {

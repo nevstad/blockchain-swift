@@ -9,14 +9,15 @@ import Foundation
 
 /// All messages get wrapped
 public struct Message: Serializable, Deserializable, Codable {
-    public enum Commands: String {
+    public enum Command: String, Codable {
         case version
+        case getTransactions
         case transactions
         case getBlocks
         case blocks
     }
     
-    public let command: String
+    public let command: Command
     public let payload: Data
     
     func serialized() -> Data {
@@ -40,6 +41,19 @@ public struct VersionMessage: Serializable, Deserializable, Codable {
     
     static func deserialize(_ data: Data) throws -> VersionMessage {
         return try JSONDecoder().decode(VersionMessage.self, from: data)
+    }
+}
+
+/// The GetBlocksMessage object will request Transactions
+public struct GetTransactionsMessage: Serializable, Deserializable, Codable {
+    public let fromAddress: NodeAddress
+    
+    func serialized() -> Data {
+        return try! JSONEncoder().encode(self)
+    }
+    
+    static func deserialize(_ data: Data) throws -> GetTransactionsMessage {
+        return try JSONDecoder().decode(GetTransactionsMessage.self, from: data)
     }
 }
 

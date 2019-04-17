@@ -192,6 +192,22 @@ final class BlockchainSwiftTests: XCTestCase {
         }
         wait(for: [txSync], timeout: 3)
         
+        let newNodeTxSync = XCTestExpectation(description: "Sync new node")
+        let node4 = Node(address: NodeAddress(host: "localhost", port: 6969), loadState: false)
+        DispatchQueue.global().async {
+            while true {
+                let requirements = [
+                    node4.mempool.count == node1.mempool.count,
+                    node4.blockchain.blocks.count == node1.blockchain.blocks.count
+                ]
+                if requirements.allSatisfy({ $0 == true}) {
+                    newNodeTxSync.fulfill()
+                    break
+                }
+            }
+        }
+        wait(for: [newNodeTxSync], timeout: 3)
+
         // Now let node2 mine the next block, claiming the Coinbase reward as well as receiving 100 from the above transaction
         // Expect every node's blocks to update, and everyones utxos to update appropriately
         let mineSync = XCTestExpectation(description: "Mining sync")
@@ -201,15 +217,18 @@ final class BlockchainSwiftTests: XCTestCase {
                 let requirements = [
                     node1.blockchain.blocks.count == node2.blockchain.blocks.count,
                     node2.blockchain.blocks.count == node3.blockchain.blocks.count,
-                    node3.blockchain.blocks.count == 2,
+                    node3.blockchain.blocks.count == node4.blockchain.blocks.count,
+                    node4.blockchain.blocks.count == 2,
                     
                     node1.blockchain.balance(for: node2.wallet.address) == node2.blockchain.balance(for: node2.wallet.address),
                     node2.blockchain.balance(for: node2.wallet.address) == node3.blockchain.balance(for: node2.wallet.address),
+                    node3.blockchain.balance(for: node2.wallet.address) == node4.blockchain.balance(for: node2.wallet.address),
                     node1.blockchain.balance(for: node2.wallet.address) == node1.blockchain.currentBlockValue() + 100,
                     
                     node1.blockchain.balance(for: node1.wallet.address) == node1.blockchain.currentBlockValue() - 100,
                     node2.blockchain.balance(for: node1.wallet.address) == node2.blockchain.currentBlockValue() - 100,
-                    node3.blockchain.balance(for: node1.wallet.address) == node3.blockchain.currentBlockValue() - 100
+                    node3.blockchain.balance(for: node1.wallet.address) == node3.blockchain.currentBlockValue() - 100,
+                    node4.blockchain.balance(for: node1.wallet.address) == node4.blockchain.currentBlockValue() - 100
                 ]
                 if requirements.allSatisfy({ $0 == true}) {
                     mineSync.fulfill()

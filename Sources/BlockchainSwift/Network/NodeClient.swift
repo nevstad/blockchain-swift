@@ -23,9 +23,9 @@ public class NodeClient {
         return connection
     }
     
-    public func sendVersionMessage(_ versionMessage: VersionMessage, to: NodeAddress) {
+    private func send(serializable: Serializable, command: Message.Command, to: NodeAddress) {
         let connection = openConnection(to: to)
-        let message = Message(command: Message.Commands.version.rawValue, payload: versionMessage.serialized())
+        let message = Message(command: command, payload: serializable.serialized())
         connection.send(content: message.serialized(), contentContext: .finalMessage, isComplete: true, completion: .contentProcessed({ (error) in
             if let error = error {
                 print(error)
@@ -34,45 +34,25 @@ public class NodeClient {
             }
             connection.cancel()
         }))
-        
     }
     
+    public func sendVersionMessage(_ versionMessage: VersionMessage, to: NodeAddress) {
+        send(serializable: versionMessage, command: .version, to: to)
+    }
+    
+    public func sendGetTransactionsMessage(_ getTransactionsMessage: GetTransactionsMessage, to: NodeAddress) {
+        send(serializable: getTransactionsMessage, command: .getTransactions, to: to)
+    }
+
     public func sendTransactionsMessage(_ transactionsMessage: TransactionsMessage, to: NodeAddress) {
-        let connection = openConnection(to: to)
-        let message = Message(command: Message.Commands.transactions.rawValue, payload: transactionsMessage.serialized())
-        connection.send(content: message.serialized(), contentContext: .finalMessage, isComplete: true, completion: .contentProcessed({ (error) in
-            if let error = error {
-                print(error)
-            } else {
-                print("Sent \(message)")
-            }
-            connection.cancel()
-        }))
+        send(serializable: transactionsMessage, command: .transactions, to: to)
     }
 
     public func sendGetBlocksMessage(_ getBlocksMessage: GetBlocksMessage, to: NodeAddress) {
-        let connection = openConnection(to: to)
-        let message = Message(command: Message.Commands.getBlocks.rawValue, payload: getBlocksMessage.serialized())
-        connection.send(content: message.serialized(), contentContext: .finalMessage, isComplete: true, completion: .contentProcessed({ (error) in
-            if let error = error {
-                print(error)
-            } else {
-                print("Sent \(message)")
-            }
-            connection.cancel()
-        }))
+        send(serializable: getBlocksMessage, command: .getBlocks, to: to)
     }
     
     public func sendBlocksMessage(_ blocksMessage: BlocksMessage, to: NodeAddress) {
-        let connection = openConnection(to: to)
-        let message = Message(command: Message.Commands.blocks.rawValue, payload: blocksMessage.serialized())
-        connection.send(content: message.serialized(), contentContext: .finalMessage, isComplete: true, completion: .contentProcessed({ (error) in
-            if let error = error {
-                print(error)
-            } else {
-                print("Sent \(message)")
-            }
-            connection.cancel()
-        }))
+        send(serializable: blocksMessage, command: .blocks, to: to)
     }
 }

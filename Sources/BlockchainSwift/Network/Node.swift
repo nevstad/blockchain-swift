@@ -169,7 +169,6 @@ public class Node {
 
 /// Handle incoming messages from the Node Network
 extension Node: NodeServerDelegate {
-    
     public func didReceiveVersionMessage(_ message: VersionMessage) {
         let localVersion = VersionMessage(version: 1, blockHeight: self.blockchain.blocks.count, fromAddress: self.address)
         
@@ -192,13 +191,23 @@ extension Node: NodeServerDelegate {
         // If the remote peer has a longer chain, request it's blocks starting from our latest block
         // Otherwise, if the remote peer has a shorter chain, respond with our version
         if localVersion.blockHeight < message.blockHeight  {
-            print("\t\t- Remote node has longer chain, requesting blocks")
+            print("\t\t- Remote node has longer chain, requesting blocks and transactions")
+            let client = NodeClient()
             let getBlocksMessage = GetBlocksMessage(fromBlockHash: self.blockchain.lastBlockHash(), fromAddress: self.address)
-            NodeClient().sendGetBlocksMessage(getBlocksMessage, to: message.fromAddress)
+            let getTransactionsMessage = GetTransactionsMessage(fromAddress: self.address)
+            client.sendGetBlocksMessage(getBlocksMessage, to: message.fromAddress)
+            client.sendGetTransactionsMessage(getTransactionsMessage, to: message.fromAddress)
         } else if localVersion.blockHeight > message.blockHeight {
             print("\t\t- Remote node has shorter chain, sending version")
             NodeClient().sendVersionMessage(localVersion, to: message.fromAddress)
         }
+    }
+    
+    public func didReceiveGetTransactionsMessage(_ message: GetTransactionsMessage) {
+        print("* Node \(self.address.urlString) received getTransactions from \(message.fromAddress.urlString)")
+        let transactionsMessage = TransactionsMessage(transactions: self.mempool, fromAddress: self.address)
+        print("\t - Sending transactions message \(transactionsMessage)")
+        NodeClient().sendTransactionsMessage(transactionsMessage, to: message.fromAddress)
     }
     
     public func didReceiveTransactionsMessage(_ message: TransactionsMessage) {
@@ -207,6 +216,10 @@ extension Node: NodeServerDelegate {
         var verifiedTransactions = [Transaction]()
         // Verify and add transactions to blockchain
         for transaction in message.transactions {
+            if self.mempool.contains(transaction) {
+                print("\t- Ignoring duplicate transaction \(transaction.txId)")
+                continue
+            }
             let verifiedInputs = transaction.inputs.filter { input in
                 // TODO: Do we need to look up a local version of the output used, in order to do proper verification?
                 return ECDSA.verify(publicKey: input.publicKey, data: input.previousOutput.hash, signature: input.signature)
