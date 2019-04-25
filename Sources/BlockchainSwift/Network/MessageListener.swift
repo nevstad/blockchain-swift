@@ -7,8 +7,9 @@
 
 import Foundation
 import Network
+import os.log
 
-public protocol NodeServerDelegate {
+public protocol MessageListenerDelegate {
     func didReceiveVersionMessage(_ message: VersionMessage)
     func didReceiveGetTransactionsMessage(_ message: GetTransactionsMessage)
     func didReceiveTransactionsMessage(_ message: TransactionsMessage)
@@ -16,64 +17,69 @@ public protocol NodeServerDelegate {
     func didReceiveBlocksMessage(_ message: BlocksMessage)
 }
 
-/// The NodeServer handles all incoming connections to a Node
-public class NodeServer {
+protocol MessageListener {
+    var delegate: MessageListenerDelegate? { get set }
+}
+
+/// The MessageListener handles all incoming connections to a Node
+public class NWListenerMessageListener: MessageListener {
     public let listener: NWListener
     public let queue: DispatchQueue
     public var connections = [NWConnection]()
     
-    var delegate: NodeServerDelegate?
+    var delegate: MessageListenerDelegate?
     
     init(port: UInt16, stateHandler: ((NWListener.State) -> Void)? = nil) {
         self.queue = DispatchQueue(label: "Node Server Queue")
-        self.listener = try! NWListener(using: .udp, on: NWEndpoint.Port(rawValue: port)!)
+        self.listener = try! NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: port)!)
         listener.stateUpdateHandler = stateHandler
         listener.newConnectionHandler = { [weak self] newConnection in
             if let strongSelf = self {
-                newConnection.receiveMessage { (data, context, isComplete, error) in
+                newConnection.receive(minimumIncompleteLength: 1, maximumLength: 13371337) { (data, context, isComplete, error) in
                     if let data = data, let message = try? Message.deserialize(data) {
                         if message.command == .version {
                             if let versionMessage = try? VersionMessage.deserialize(message.payload) {
                                 strongSelf.delegate?.didReceiveVersionMessage(versionMessage)
                             } else {
-                                print("Error: Received malformed \(message.command) message")
+                                os_log("Received malformed %s message", type: .error, message.command.description)
                             }
                         } else if message.command == .getTransactions {
                             if let getTransactionsMessage = try? GetTransactionsMessage.deserialize(message.payload) {
                                 strongSelf.delegate?.didReceiveGetTransactionsMessage(getTransactionsMessage)
                             } else {
-                                print("Error: Received malformed \(message.command) message")
+                                os_log("Received malformed %s message", type: .error, message.command.description)
                             }
-                        }else if message.command == .transactions {
+                        } else if message.command == .transactions {
                             if let transactionsMessage = try? TransactionsMessage.deserialize(message.payload) {
                                 strongSelf.delegate?.didReceiveTransactionsMessage(transactionsMessage)
                             } else {
-                                print("Error: Received malformed \(message.command) message")
+                                os_log("Received malformed %s message", type: .error, message.command.description)
                             }
                         } else if message.command == .getBlocks {
                             if let getBlocksMessage = try? GetBlocksMessage.deserialize(message.payload) {
                                 strongSelf.delegate?.didReceiveGetBlocksMessage(getBlocksMessage)
                             } else {
-                                print("Error: Received malformed \(message.command) message")
+                                os_log("Received malformed %s message", type: .error, message.command.description)
                             }
                         } else if message.command == .blocks {
                             if let blocksMessage = try? BlocksMessage.deserialize(message.payload) {
                                 strongSelf.delegate?.didReceiveBlocksMessage(blocksMessage)
                             } else {
-                                print("Error: Received malformed \(message.command) message")
+                                os_log("Received malformed %s message", type: .error, message.command.description)
                             }
                         } else {
-                            print("Received unknown Message: \(message)")
+                            os_log("Received unknown %s message", type: .error, message.command.description)
                         }
                     } else {
-                        print("Could not deserialize Message!")
+                        os_log("Could not deserialize message", type: .error)
                     }
                 }
                 newConnection.start(queue: strongSelf.queue)
                 self?.connections.append(newConnection)
+                os_log("New connection: %s", type: .info, newConnection.debugDescription)
             }
         }
-        listener.start(queue: .main)
+        listener.start(queue: queue)
     }
 }
 

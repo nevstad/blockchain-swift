@@ -6,10 +6,11 @@
 //
 
 import Foundation
+import os.log
 
 protocol NodeDelegate {
-    func node(_ node: Node, didReceiveTransactions: [Transaction])
-    func node(_ node: Node, didReceiveBlocks: [Block])
+    func node(_ node: Node, didReceiveTransactions transactions: [Transaction])
+    func node(_ node: Node, didReceiveBlocks blocks: [Block])
 }
 
 /// In our simplistic network, we have _one_ central Node, with an arbitrary amount of Miners and Wallets.
@@ -43,8 +44,9 @@ public class Node {
     // The wallet associated with this Node
     public let wallet: Wallet
     
-    /// Listen for incoming connections
-    let server: NodeServer
+    /// Node network
+    var server: MessageListener
+    let client: MessageSender
     
     var delegate: NodeDelegate?
 
@@ -71,8 +73,10 @@ public class Node {
             self.wallet = wallet ?? Wallet()!
         }
         
+        // Handle outcoing connections
+        self.client = NWConnectionMessageSender()
         // Set up server to listen on incoming requests
-        self.server = NodeServer(port: UInt16(address.port)) { newState in
+        self.server = NWListenerMessageListener(port: UInt16(address.port)) { newState in
             print(newState)
         }
         self.server.delegate = self
@@ -82,7 +86,7 @@ public class Node {
         self.knownNodes.append(firstNodeAddr)
         if !self.address.isCentralNode {
             let versionMessage = VersionMessage(version: 1, blockHeight: self.blockchain.blocks.count, fromAddress: self.address)
-            NodeClient().sendVersionMessage(versionMessage, to: firstNodeAddr)
+            client.sendVersionMessage(versionMessage, to: firstNodeAddr)
         }
     }
     
@@ -124,7 +128,7 @@ public class Node {
 
         // Broadcast new transaction to network
         for node in knownNodes(except: [self.address]) {
-            NodeClient().sendTransactionsMessage(TransactionsMessage(transactions: [transaction], fromAddress: self.address), to: node)
+            client.sendTransactionsMessage(TransactionsMessage(transactions: [transaction], fromAddress: self.address), to: node)
         }
         
         return transaction
@@ -160,7 +164,7 @@ public class Node {
         
         // Notify nodes about new block
         for node in self.knownNodes(except: [self.address]) {
-            NodeClient().sendBlocksMessage(BlocksMessage(blocks: [block], fromAddress: self.address), to: node)
+            client.sendBlocksMessage(BlocksMessage(blocks: [block], fromAddress: self.address), to: node)
         }
         
         return block
@@ -168,16 +172,16 @@ public class Node {
 }
 
 /// Handle incoming messages from the Node Network
-extension Node: NodeServerDelegate {
+extension Node: MessageListenerDelegate {
     public func didReceiveVersionMessage(_ message: VersionMessage) {
         let localVersion = VersionMessage(version: 1, blockHeight: self.blockchain.blocks.count, fromAddress: self.address)
         
         // Ignore nodes running a different blockchain protocol version
         guard message.version == localVersion.version else {
-            print("* Node \(self.address.urlString) received invalid Version from \(message.fromAddress.urlString) (\(message.version))")
+            os_log("* Node %s received invalid Version from %s (%d)", type: .info, self.address.urlString, message.fromAddress.urlString, message.version)
             return
         }
-        print("* Node \(self.address.urlString) received version from \(message.fromAddress.urlString)")
+        os_log("* Node %s received version from %s", type: .info, self.address.urlString, message.fromAddress.urlString)
         
         // If we (as central node) have a new node, add it to our peers
         if self.address.isCentralNode {
@@ -185,39 +189,37 @@ extension Node: NodeServerDelegate {
                 self.knownNodes.append(message.fromAddress)
             }
         }
-        print("\t\t- Known peers:")
-        self.knownNodes.forEach { print("\t\t\t - \($0.urlString)") }
+        os_log("\t\t- Known peers:\n%s", type: .info, self.knownNodes.map { $0.urlString }.joined(separator: ","))
         
         // If the remote peer has a longer chain, request it's blocks starting from our latest block
         // Otherwise, if the remote peer has a shorter chain, respond with our version
         if localVersion.blockHeight < message.blockHeight  {
-            print("\t\t- Remote node has longer chain, requesting blocks and transactions")
-            let client = NodeClient()
+            os_log("\t\t- Remote node has longer chain, requesting blocks and transactions", type: .info)
             let getBlocksMessage = GetBlocksMessage(fromBlockHash: self.blockchain.lastBlockHash(), fromAddress: self.address)
             let getTransactionsMessage = GetTransactionsMessage(fromAddress: self.address)
             client.sendGetBlocksMessage(getBlocksMessage, to: message.fromAddress)
             client.sendGetTransactionsMessage(getTransactionsMessage, to: message.fromAddress)
         } else if localVersion.blockHeight > message.blockHeight {
-            print("\t\t- Remote node has shorter chain, sending version")
-            NodeClient().sendVersionMessage(localVersion, to: message.fromAddress)
+            os_log("\t\t- Remote node has shorter chain, sending version", type: .info)
+            client.sendVersionMessage(localVersion, to: message.fromAddress)
         }
     }
     
     public func didReceiveGetTransactionsMessage(_ message: GetTransactionsMessage) {
-        print("* Node \(self.address.urlString) received getTransactions from \(message.fromAddress.urlString)")
+        os_log("* Node %s received getTransactions from %s", type: .info, self.address.urlString, message.fromAddress.urlString)
         let transactionsMessage = TransactionsMessage(transactions: self.mempool, fromAddress: self.address)
-        print("\t - Sending transactions message \(transactionsMessage)")
-        NodeClient().sendTransactionsMessage(transactionsMessage, to: message.fromAddress)
+        os_log("\t - Sending transactions message", type: .info)
+        client.sendTransactionsMessage(transactionsMessage, to: message.fromAddress)
     }
     
     public func didReceiveTransactionsMessage(_ message: TransactionsMessage) {
-        print("* Node \(self.address.urlString) received transactions from \(message.fromAddress.urlString)")
+        os_log("* Node %s received transactions from %s", type: .info, self.address.urlString, message.fromAddress.urlString)
 
         var verifiedTransactions = [Transaction]()
         // Verify and add transactions to blockchain
         for transaction in message.transactions {
             if self.mempool.contains(transaction) {
-                print("\t- Ignoring duplicate transaction \(transaction.txId)")
+                os_log("\t- Ignoring duplicate transaction %s", type: .debug, transaction.txId)
                 continue
             }
             let verifiedInputs = transaction.inputs.filter { input in
@@ -225,10 +227,10 @@ extension Node: NodeServerDelegate {
                 return ECDSA.verify(publicKey: input.publicKey, data: input.previousOutput.hash, signature: input.signature)
             }
             if verifiedInputs.count == transaction.inputs.count {
-                print("\t- Added transaction \(transaction)")
+                os_log("\t- Added transaction %s", type: .info, transaction.txId)
                 verifiedTransactions.append(transaction)
             } else {
-                print("\t- Unable to verify transaction \(transaction)")
+                os_log("\t- Unable to verify transaction %s", type: .debug, transaction.txId)
             }
         }
         
@@ -241,40 +243,44 @@ extension Node: NodeServerDelegate {
         // Central node is responsible for distributing the new transactions (nodes will handle verification internally)
         if self.address.isCentralNode {
             for node in knownNodes(except: [self.address, message.fromAddress])  {
-                NodeClient().sendTransactionsMessage(message, to: node)
+                client.sendTransactionsMessage(message, to: node)
             }
         }
     }
     
     public func didReceiveGetBlocksMessage(_ message: GetBlocksMessage) {
-        print("* Node \(self.address.urlString) received getBlocks from \(message.fromAddress.urlString)")
+        os_log("* Node %s received .getBlocks from %s", type: .info, self.address.urlString, message.fromAddress.urlString)
         if message.fromBlockHash.isEmpty {
-            NodeClient().sendBlocksMessage(BlocksMessage(blocks: self.blockchain.blocks, fromAddress: self.address), to: message.fromAddress)
-        }
-        if let fromHashIndex = self.blockchain.blocks.firstIndex(where: { $0.hash == message.fromBlockHash }) {
+            client.sendBlocksMessage(BlocksMessage(blocks: self.blockchain.blocks, fromAddress: self.address), to: message.fromAddress)
+        } else if let fromHashIndex = self.blockchain.blocks.firstIndex(where: { $0.hash == message.fromBlockHash }) {
             let requestedBlocks = Array<Block>(self.blockchain.blocks[fromHashIndex...])
             let blocksMessage = BlocksMessage(blocks: requestedBlocks, fromAddress: self.address)
-            print("\t - Sending blocks message \(blocksMessage)")
-            NodeClient().sendBlocksMessage(blocksMessage, to: message.fromAddress)
+            os_log("\t - Sending blocks message with %d blocks", type: .info, blocksMessage.blocks.count)
+            client.sendBlocksMessage(blocksMessage, to: message.fromAddress)
         } else {
-            print("\t - Unable to generate blocks message to satisfy \(message)")
+            os_log("\t - Unable to satisfy fromBlockHash=%s", type: .debug, message.fromBlockHash.hex)
         }
+
     }
 
     public func didReceiveBlocksMessage(_ message: BlocksMessage) {
-        print("* Node \(self.address.urlString) received blocks from \(message.fromAddress.urlString)")
+        os_log("* Node %s received .blocks from %s", type: .info, self.address.urlString, message.fromAddress.urlString)
         var validBlocks = [Block]()
         for block in message.blocks {
             if block.previousHash != self.blockchain.lastBlockHash() {
-                print("\t- Uh oh, we're out of sync!")
+                os_log("\t- Received blocks where first block's previous hash doesn't match our latest block hash", type: .debug)
             }
             if self.blockchain.pow.validate(block: block, previousHash: self.blockchain.lastBlockHash()) {
                 self.blockchain.createBlock(nonce: block.nonce, hash: block.hash, previousHash: block.previousHash, timestamp: block.timestamp, transactions: block.transactions)
                 validBlocks.append(block)
-                print("\t Added block!")
+                self.mempool.removeAll { (transaction) -> Bool in
+                    return block.transactions.contains(transaction)
+                }
+                os_log("\t Added block!", type: .info)
             } else {
-                print("\t- Unable to verify block: \(block)")
+                os_log("\t- Unable to verify block: %s", type: .debug, block.hash.hex)
             }
+
         }
         
         // Inform delegate
@@ -283,7 +289,7 @@ extension Node: NodeServerDelegate {
         // Central node is responsible for distributing the new transactions (nodes will handle verification internally)
         if self.address.isCentralNode && !validBlocks.isEmpty {
             for node in knownNodes(except: [self.address, message.fromAddress])  {
-                NodeClient().sendBlocksMessage(message, to: node)
+                client.sendBlocksMessage(message, to: node)
             }
         }
     }

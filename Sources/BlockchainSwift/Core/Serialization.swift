@@ -7,10 +7,10 @@
 
 import Foundation
 
-protocol Serializable {
+public protocol Serializable {
     func serialized() -> Data
 }
-protocol Deserializable {
+public protocol Deserializable {
     static func deserialize(_ data: Data) throws -> Self
 }
 

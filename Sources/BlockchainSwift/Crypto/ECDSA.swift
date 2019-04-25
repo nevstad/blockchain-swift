@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import os.log
 
 final class ECDSA {
     typealias KeyPair = (privateKey: SecKey, publicKey: SecKey)
@@ -30,6 +31,7 @@ final class ECDSA {
         var error: Unmanaged<CFError>?
         guard let privateKey = SecKeyCreateRandomKey(keyGenParams as CFDictionary, &error),
             let publicKey = SecKeyCopyPublicKey(privateKey) else {
+                os_log("Could not create key-pair", type: .error)
                 return nil
         }
         return (privateKey: privateKey, publicKey: publicKey)
@@ -93,7 +95,7 @@ final class ECDSA {
             kSecAttrKeySizeInBits as String: 256 as AnyObject
         ]
         guard let secKey = SecKeyCreateWithData(publicKey as CFData, attributes as CFDictionary, nil) else {
-            print("Could not generate SecKey")
+            os_log("Could not generate SecKey for verification", type: .error)
             return false
         }
         return SecKeyVerifySignature(secKey,

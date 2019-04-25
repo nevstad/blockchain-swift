@@ -54,3 +54,14 @@ extension Transaction: Equatable {
         return lhs.txHash == rhs.txHash
     }
 }
+
+extension Transaction: CustomStringConvertible {
+    public var description: String {
+//        let encoder = JSONEncoder()
+//        encoder.outputFormatting = .prettyPrinted
+//        return String(data: try! encoder.encode(self), encoding: .utf8)!
+        let ins = "ins: \(inputs.map { $0.previousOutput.hash.hex }.joined(separator: ", "))"
+        let outs = "outs: (\(outputs.map { "\($0.value) -> \($0.address.hex)" }.joined(separator: ", ")))"
+        return "TX(id: \(txId), \(ins), \(outs))"
+    }
+}

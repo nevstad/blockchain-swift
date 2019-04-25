@@ -9,7 +9,11 @@ import Foundation
 
 /// All messages get wrapped
 public struct Message: Serializable, Deserializable, Codable {
-    public enum Command: String, Codable {
+    public enum Command: String, Codable, CustomStringConvertible {
+        public var description: String {
+            return ".\(rawValue)"
+        }
+        
         case version
         case getTransactions
         case transactions
@@ -20,11 +24,11 @@ public struct Message: Serializable, Deserializable, Codable {
     public let command: Command
     public let payload: Data
     
-    func serialized() -> Data {
+    public func serialized() -> Data {
         return try! JSONEncoder().encode(self)
     }
     
-    static func deserialize(_ data: Data) throws -> Message {
+    public static func deserialize(_ data: Data) throws -> Message {
         return try JSONDecoder().decode(Message.self, from: data)
     }
 }
@@ -35,11 +39,11 @@ public struct VersionMessage: Serializable, Deserializable, Codable {
     public let blockHeight: Int
     public let fromAddress: NodeAddress
 
-    func serialized() -> Data {
+    public func serialized() -> Data {
         return try! JSONEncoder().encode(self)
     }
     
-    static func deserialize(_ data: Data) throws -> VersionMessage {
+    public static func deserialize(_ data: Data) throws -> VersionMessage {
         return try JSONDecoder().decode(VersionMessage.self, from: data)
     }
 }
@@ -48,11 +52,11 @@ public struct VersionMessage: Serializable, Deserializable, Codable {
 public struct GetTransactionsMessage: Serializable, Deserializable, Codable {
     public let fromAddress: NodeAddress
     
-    func serialized() -> Data {
+    public func serialized() -> Data {
         return try! JSONEncoder().encode(self)
     }
     
-    static func deserialize(_ data: Data) throws -> GetTransactionsMessage {
+    public static func deserialize(_ data: Data) throws -> GetTransactionsMessage {
         return try JSONDecoder().decode(GetTransactionsMessage.self, from: data)
     }
 }
@@ -62,11 +66,11 @@ public struct TransactionsMessage: Serializable, Deserializable, Codable {
     public let transactions: [Transaction]
     public let fromAddress: NodeAddress
 
-    func serialized() -> Data {
+    public func serialized() -> Data {
         return try! JSONEncoder().encode(self)
     }
     
-    static func deserialize(_ data: Data) throws -> TransactionsMessage {
+    public static func deserialize(_ data: Data) throws -> TransactionsMessage {
         return try JSONDecoder().decode(TransactionsMessage.self, from: data)
     }
 }
@@ -76,11 +80,11 @@ public struct GetBlocksMessage: Serializable, Deserializable, Codable {
     public let fromBlockHash: Data
     public let fromAddress: NodeAddress
 
-    func serialized() -> Data {
+    public func serialized() -> Data {
         return try! JSONEncoder().encode(self)
     }
     
-    static func deserialize(_ data: Data) throws -> GetBlocksMessage {
+    public static func deserialize(_ data: Data) throws -> GetBlocksMessage {
         return try JSONDecoder().decode(GetBlocksMessage.self, from: data)
     }
 }
@@ -90,11 +94,11 @@ public struct BlocksMessage: Serializable, Deserializable, Codable {
     public let blocks: [Block]
     public let fromAddress: NodeAddress
 
-    func serialized() -> Data {
+    public func serialized() -> Data {
         return try! JSONEncoder().encode(self)
     }
     
-    static func deserialize(_ data: Data) throws -> BlocksMessage {
+    public static func deserialize(_ data: Data) throws -> BlocksMessage {
         return try JSONDecoder().decode(BlocksMessage.self, from: data)
     }
 }
