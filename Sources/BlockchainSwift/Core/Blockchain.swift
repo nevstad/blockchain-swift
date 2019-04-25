@@ -10,8 +10,8 @@ import Foundation
 public class Blockchain: Codable {
     // Coin specifics, stolen from Bitcoin
     public enum Coin {
-        static let satosis: UInt64 = 100_000_000
-        static let subsidy = 50 * satosis
+        static let satoshis: UInt64 = 100_000_000
+        static let subsidy = satoshis / satoshis //50 * satoshis
         static let halvingInterval: UInt64 = 210_000
         
         /// Get the block value, or the block reward, at a specified block height
@@ -67,11 +67,10 @@ public class Blockchain: Codable {
     /// Updates UTXOs when a new block is added
     /// - Parameter block: The block that has been added, whose transactions we must go through to find the nes UTXO state
     public func updateSpendableOutputs(with block: Block) {
+        // TODO: Bugs!
         let spentOutputs = block.transactions.flatMap { $0.inputs.map { $0.previousOutput } }
         for spentTxOut in spentOutputs {
-            self.utxos.removeAll { (txOut) -> Bool in
-                txOut.hash == spentTxOut.hash
-            }
+            self.utxos.removeAll { $0.hash == spentTxOut.hash }
         }
         self.utxos.append(contentsOf: block.transactions.flatMap({ $0.outputs }))
     }

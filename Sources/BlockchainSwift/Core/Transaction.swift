@@ -65,3 +65,19 @@ extension Transaction: CustomStringConvertible {
         return "TX(id: \(txId), \(ins), \(outs))"
     }
 }
+
+public extension Array where Element == Transaction {
+    public func expenditure(for wallet: Wallet) -> UInt64 {
+        var amount: UInt64 = 0
+        forEach { tx in
+            if tx.inputs.first!.publicKey == wallet.publicKey {
+                amount += tx.outputs
+                    .filter { $0.address != wallet.address }
+                    .map{ $0.value }
+                    .reduce(0, +)
+            }
+        }
+        return amount
+    }
+}
+

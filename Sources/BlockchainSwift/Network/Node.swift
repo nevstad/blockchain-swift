@@ -101,7 +101,7 @@ public class Node {
         
         // Calculate transaction value and change, based on the sender's balance and the transaction's value
         // - All utxos for the sender must be spent, and are indivisible.
-        let balance = self.blockchain.balance(for: self.wallet.address)
+        let balance = self.blockchain.balance(for: self.wallet.address) - self.mempool.expenditure(for: self.wallet)
         if value > balance {
             throw TxError.insufficientBalance
         }
