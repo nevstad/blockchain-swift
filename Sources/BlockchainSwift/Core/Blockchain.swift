@@ -12,7 +12,7 @@ public class Blockchain: Codable {
     // Coin specifics, stolen from Bitcoin
     public enum Coin {
         static let satoshis: UInt64 = 100_000_000
-        static let subsidy = satoshis / satoshis //50 * satoshis
+        static let subsidy = satoshis / 100
         static let halvingInterval: UInt64 = 210_000
         
         /// Get the block value, or the block reward, at a specified block height
@@ -20,6 +20,10 @@ public class Blockchain: Codable {
         static func blockReward(at blockHeight: UInt64) -> UInt64 {
             let halvings = blockHeight / halvingInterval
             return subsidy / (1 + halvings)
+        }
+        
+        static func coinValue(satoshis: UInt64) -> Double {
+            return Double(satoshis) / Double(Coin.satoshis)
         }
     }
     
@@ -32,7 +36,7 @@ public class Blockchain: Codable {
     /// Unspent Transaction Outputs
     /// - This class keeps track off all current UTXOs, providing a quick lookup for balances and creating new transactions.
     /// - For now, any transaction must use all available utxos for that address, meaning we have an easier job of things.
-    private var utxos = [UnspentTransaction]()
+    public var utxos = [UnspentTransaction]()
 
     
     /// Returns the last block in the blockchain. Fatal error if we have no blocks.
