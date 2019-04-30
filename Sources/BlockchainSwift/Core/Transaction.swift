@@ -13,6 +13,9 @@ public struct Transaction: Codable, Serializable {
     
     /// Transaction outputs, which are destinations for coins
     public let outputs: [TransactionOutput]
+
+    /// The lock time or block number
+    public let lockTime: UInt32
     
     /// Transaction hash
     public var txHash: Data {
@@ -37,15 +40,16 @@ public struct Transaction: Codable, Serializable {
         var data = Data()
         data += inputs.flatMap { $0.serialized() }
         data += outputs.flatMap { $0.serialized() }
+        data += lockTime
         return data
     }
     
     public static func coinbase(address: Data, blockValue: UInt64) -> Transaction {
-        let coinbaseTxOutPoint = TransactionOutPoint(hash: Data(), index: 0)
+        let coinbaseTxOutPoint = TransactionOutputReference(hash: Data(), index: 0)
         let coinbaseTxIn = TransactionInput(previousOutput: coinbaseTxOutPoint, publicKey: address, signature: Data())
         let txIns:[TransactionInput] = [coinbaseTxIn]
         let txOuts:[TransactionOutput] = [TransactionOutput(value: blockValue, address: address)]
-        return Transaction(inputs: txIns, outputs: txOuts)
+        return Transaction(inputs: txIns, outputs: txOuts, lockTime: UInt32(Date().timeIntervalSince1970))
     }
 }
 
@@ -60,9 +64,19 @@ extension Transaction: CustomStringConvertible {
 //        let encoder = JSONEncoder()
 //        encoder.outputFormatting = .prettyPrinted
 //        return String(data: try! encoder.encode(self), encoding: .utf8)!
-        let ins = "ins: \(inputs.map { $0.previousOutput.hash.hex }.joined(separator: ", "))"
-        let outs = "outs: (\(outputs.map { "\($0.value) -> \($0.address.hex)" }.joined(separator: ", ")))"
-        return "TX(id: \(txId), \(ins), \(outs))"
+        let ins = "ins: \(inputs.map { $0.previousOutput.hash.readableHex }.joined(separator: ", "))"
+        let outs = "outs: (\(outputs.map { "\($0.value) -> \($0.address.readableHex)" }.joined(separator: ", ")))"
+        return "Transaction (id: \(Data(txHash.reversed()).readableHex), \(ins), \(outs))"
+    }
+    
+    public func summary() -> (from: Data, to: Data, amount: UInt64, change: UInt64) {
+        let from = isCoinbase ? Data() : inputs.first!.publicKey.toAddress()
+        let fromOutput = outputs.filter { $0.address == from }.first
+        let toOutput = outputs.filter { $0.address != from }.first!
+        let to = toOutput.address
+        let amount = toOutput.value
+        let change = fromOutput?.value ?? 0
+        return (from: from, to: to, amount: amount, change: change)
     }
 }
 
@@ -70,7 +84,7 @@ public extension Array where Element == Transaction {
     public func expenditure(for wallet: Wallet) -> UInt64 {
         var amount: UInt64 = 0
         forEach { tx in
-            if tx.inputs.first!.publicKey == wallet.publicKey {
+            if tx.inputs.first?.publicKey == wallet.publicKey {
                 amount += tx.outputs
                     .filter { $0.address != wallet.address }
                     .map{ $0.value }

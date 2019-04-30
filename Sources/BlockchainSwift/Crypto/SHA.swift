@@ -20,6 +20,10 @@ extension Data {
         return digest
     }
     
+    func toAddress() -> Data {
+        return sha256().sha256()
+    }
+    
     public init?(hex: String) {
         let len = hex.count / 2
         var data = Data(capacity: len)
@@ -39,5 +43,12 @@ extension Data {
     /// Return a hex digest of `self`
     public var hex: String {
         return reduce("") { $0 + String(format: "%02x", $1) }
+    }
+    
+    public var readableHex: String {
+        if hex.count < 29 {
+            return hex
+        }
+        return "\(hex.prefix(13))...\(hex.suffix(13))"
     }
 }

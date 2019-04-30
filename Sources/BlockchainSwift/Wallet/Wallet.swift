@@ -24,7 +24,7 @@ public class Wallet {
             self.secPrivateKey = keyPair.privateKey
             self.secPublicKey = keyPair.publicKey
             self.publicKey = publicKeyCopy
-            self.address = self.publicKey.sha256().sha256()
+            self.address = self.publicKey.toAddress()
         } else {
             return nil
         }
@@ -37,7 +37,7 @@ public class Wallet {
             self.secPrivateKey = keyPair.privateKey
             self.secPublicKey = keyPair.publicKey
             self.publicKey = publicKeyCopy
-            self.address = self.publicKey.sha256().sha256()
+            self.address = self.publicKey.toAddress()
         } else {
             return nil
         }
@@ -50,7 +50,7 @@ public class Wallet {
             self.secPrivateKey = keyPair.privateKey
             self.secPublicKey = keyPair.publicKey
             self.publicKey = publicKeyCopy
-            self.address = self.publicKey.sha256().sha256()
+            self.address = self.publicKey.toAddress()
         } else {
             return nil
         }
@@ -58,11 +58,11 @@ public class Wallet {
 
     /// Signs a Transaction's inputs with this Wallet's privateKey
     /// - Parameter utxos: Unspent transaction outputs (utxo) represent spendable coins
-    public func sign(utxos: [TransactionOutput]) throws -> [TransactionInput] {
+    public func sign(utxos: [UnspentTransaction]) throws -> [TransactionInput] {
         var signedInputs = [TransactionInput]()
         for (i, utxo) in utxos.enumerated() {
             let signature = try sign(utxo: utxo)
-            let prevOut = TransactionOutPoint(hash: utxo.hash, index: UInt32(i))
+            let prevOut = TransactionOutputReference(hash: utxo.outpoint.hash, index: UInt32(i))
             let signedTxIn = TransactionInput(previousOutput: prevOut, publicKey: self.publicKey, signature: signature)
             signedInputs.append(signedTxIn)
         }
@@ -71,8 +71,8 @@ public class Wallet {
 
     /// Signs a TransactionOutput with this Wallet's privateKey
     /// - Parameter utxo: Unspent transaction output (utxo) represents spendable coins
-    public func sign(utxo: TransactionOutput) throws -> Data {
-        let txOutputDataHash = utxo.hash
+    public func sign(utxo: UnspentTransaction) throws -> Data {
+        let txOutputDataHash = utxo.outpoint.hash
         return try ECDSA.sign(data: txOutputDataHash, with: self.secPrivateKey)
     }
     

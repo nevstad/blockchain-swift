@@ -10,7 +10,7 @@ import Foundation
 /// Inputs to a transaction
 public struct TransactionInput: Codable, Serializable {
     // A reference to the previous Transaction output
-    public let previousOutput: TransactionOutPoint
+    public let previousOutput: TransactionOutputReference
     
     /// The raw public key
     public let publicKey: Data
@@ -21,13 +21,14 @@ public struct TransactionInput: Codable, Serializable {
     /// Coinbase transactions have no inputs, and are typically used for block rewards
     public var isCoinbase: Bool {
         get {
-            return previousOutput.hash == Data()
+            return previousOutput.hash == Data() && previousOutput.index == 0
         }
     }
     
     public func serialized() -> Data {
         var data = Data()
         data += previousOutput.serialized()
+        data += publicKey
         data += signature
         return data
     }

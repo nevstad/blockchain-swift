@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import os.log
 
 public class Blockchain: Codable {
     // Coin specifics, stolen from Bitcoin
@@ -31,7 +32,7 @@ public class Blockchain: Codable {
     /// Unspent Transaction Outputs
     /// - This class keeps track off all current UTXOs, providing a quick lookup for balances and creating new transactions.
     /// - For now, any transaction must use all available utxos for that address, meaning we have an easier job of things.
-    private var utxos = [TransactionOutput]()
+    private var utxos = [UnspentTransaction]()
 
     
     /// Returns the last block in the blockchain. Fatal error if we have no blocks.
@@ -60,25 +61,36 @@ public class Blockchain: Codable {
     
     /// Finds UTXOs for a specified address
     /// - Parameter address: The wallet address whose UTXOs we want to find
-    public func findSpendableOutputs(for address: Data) -> [TransactionOutput] {
-        return self.utxos.filter({ $0.address == address })
+    public func findSpendableOutputs(for address: Data) -> [UnspentTransaction] {
+        return self.utxos.filter({ $0.output.address == address })
     }
     
     /// Updates UTXOs when a new block is added
     /// - Parameter block: The block that has been added, whose transactions we must go through to find the nes UTXO state
     public func updateSpendableOutputs(with block: Block) {
-        // TODO: Bugs!
-        let spentOutputs = block.transactions.flatMap { $0.inputs.map { $0.previousOutput } }
-        for spentTxOut in spentOutputs {
-            self.utxos.removeAll { $0.hash == spentTxOut.hash }
+        os_log("pre: %s", type: .debug, utxos.debugDescription)
+        
+        for transaction in block.transactions {
+            updateSpendableOutputs(with: transaction)
         }
-        self.utxos.append(contentsOf: block.transactions.flatMap({ $0.outputs }))
+        os_log("post: %s", type: .debug, utxos.debugDescription)
+    }
+    
+    public func updateSpendableOutputs(with transaction: Transaction) {
+        for input in transaction.inputs {
+            self.utxos.removeAll { (unspentTransaction) -> Bool in
+                return unspentTransaction.outpoint.hash == input.previousOutput.hash
+            }
+        }
+        for (index, output) in transaction.outputs.enumerated() {
+            self.utxos.append(UnspentTransaction(output: output, outpoint: TransactionOutputReference(hash: transaction.txHash, index: UInt32(index))))
+        }
     }
     
     /// Returns the balannce for a specified address, defined by the sum of its unspent outputs
     /// - Parameter address: The wallet address whose balance to find
     public func balance(for address: Data) -> UInt64 {
-        return findSpendableOutputs(for: address).map { $0.value }.reduce(0, +)
+        return findSpendableOutputs(for: address).map { $0.output.value }.reduce(0, +)
     }
 
     /// Finds a transaction by id, iterating through every block (to optimize this, look into Merkle trees).
@@ -93,5 +105,21 @@ public class Blockchain: Codable {
         }
         return nil
     }
-    
+
+    public func findTransactions(for address: Data) -> (sent: [Transaction], received: [Transaction]) {
+        var sent: [Transaction] = []
+        var received: [Transaction] = []
+        for block in self.blocks {
+            for transaction in block.transactions {
+                let summary = transaction.summary()
+                if summary.from == address {
+                    sent.append(transaction)
+                } else if summary.to == address {
+                    received.append(transaction)
+                }
+            }
+        }
+        return (sent: sent, received: received)
+    }
+
 }

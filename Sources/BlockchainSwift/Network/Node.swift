@@ -9,7 +9,12 @@ import Foundation
 import os.log
 
 protocol NodeDelegate {
+    func node(_ node: Node, didAddPeer: NodeAddress)
+    func node(_ node: Node, didCreateTransactions transactions: [Transaction])
+    func node(_ node: Node, didSendTransactions transactions: [Transaction])
     func node(_ node: Node, didReceiveTransactions transactions: [Transaction])
+    func node(_ node: Node, didCreateBlocks blocks: [Block])
+    func node(_ node: Node, didSendBlocks blocks: [Block])
     func node(_ node: Node, didReceiveBlocks blocks: [Block])
 }
 
@@ -52,6 +57,7 @@ public class Node {
 
     /// Transaction error types
     public enum TxError: Error {
+        case sourceEqualDestination
         case invalidValue
         case insufficientBalance
         case unverifiedTransaction
@@ -60,18 +66,11 @@ public class Node {
     /// Create a new Node
     /// - Parameter address: This Node's address
     /// - Parameter wallet: This Node's wallet, created if nil
-    init(address: NodeAddress, wallet: Wallet? = nil, loadState: Bool = true) {
+    init(address: NodeAddress, wallet: Wallet? = nil, blockchain: Blockchain? = nil, mempool: [Transaction]? = nil) {
         self.address = address
-        if loadState {
-            let state = Node.loadState(address: address)
-            self.blockchain = state.blockchain ?? Blockchain()
-            self.mempool = state.mempool ?? [Transaction]()
-            self.wallet = state.wallet ?? Wallet()!
-        } else {
-            self.blockchain = Blockchain()
-            self.mempool = [Transaction]()
-            self.wallet = wallet ?? Wallet()!
-        }
+        self.blockchain = blockchain ?? Blockchain()
+        self.mempool = mempool ?? [Transaction]()
+        self.wallet = wallet ?? Wallet()!
         
         // Handle outcoing connections
         self.client = NWConnectionMessageSender()
@@ -82,9 +81,11 @@ public class Node {
         self.server.delegate = self
 
         // All nodes must know of the central node, and connect to it (unless self is central node)
-        let firstNodeAddr = NodeAddress.centralAddress()
-        self.knownNodes.append(firstNodeAddr)
         if !self.address.isCentralNode {
+            let firstNodeAddr = NodeAddress.centralAddress()
+            self.knownNodes.append(firstNodeAddr)
+            self.delegate?.node(self, didAddPeer: firstNodeAddr)
+
             let versionMessage = VersionMessage(version: 1, blockHeight: self.blockchain.blocks.count, fromAddress: self.address)
             client.sendVersionMessage(versionMessage, to: firstNodeAddr)
         }
@@ -99,36 +100,64 @@ public class Node {
             throw TxError.invalidValue
         }
         
+        if recipientAddress == self.wallet.address {
+            throw TxError.sourceEqualDestination
+        }
+        
         // Calculate transaction value and change, based on the sender's balance and the transaction's value
         // - All utxos for the sender must be spent, and are indivisible.
-        let balance = self.blockchain.balance(for: self.wallet.address) - self.mempool.expenditure(for: self.wallet)
+        let balance = self.blockchain.balance(for: self.wallet.address)
         if value > balance {
             throw TxError.insufficientBalance
         }
-        let change = balance - value
         
         // Create a transaction and sign it, making sure first the sender has the right to claim the spendale outputs
         let spendableOutputs = self.blockchain.findSpendableOutputs(for: self.wallet.address)
-        guard let signedTxIns = try? self.wallet.sign(utxos: spendableOutputs) else { throw TxError.unverifiedTransaction }
+        var usedSpendableOutputs = [UnspentTransaction]()
+        var spendValue: UInt64 = 0
+        for availableSpendableOutput in spendableOutputs {
+            usedSpendableOutputs.append(availableSpendableOutput)
+            spendValue += availableSpendableOutput.output.value
+            if spendValue >= value {
+                break
+            }
+        }
+        if spendValue < value {
+            os_log("Calcluated balance %d does not match sum of spendable outputs - value=%d, spendValue=%d", type: .error, balance, value, spendValue)
+            throw TxError.insufficientBalance
+        }
+        let change = spendValue - value
+        
+        guard let signedTxIns = try? self.wallet.sign(utxos: usedSpendableOutputs) else { throw TxError.unverifiedTransaction }
         for (i, txIn) in signedTxIns.enumerated() {
-            let originalOutputData = spendableOutputs[i].hash
+            let originalOutputData = usedSpendableOutputs[i].outpoint.hash
             if !ECDSA.verify(publicKey: self.wallet.publicKey, data: originalOutputData, signature: txIn.signature) {
                 throw TxError.unverifiedTransaction
             }
         }
         
         // Create the transaction with the correct ins and outs
-        let txOuts = [
-            TransactionOutput(value: value, address: recipientAddress),
-            TransactionOutput(value: change, address: self.wallet.address)
-        ]
-        let transaction = Transaction(inputs: signedTxIns, outputs: txOuts)
+        var txOuts = [TransactionOutput]()
+        txOuts.append(TransactionOutput(value: value, address: recipientAddress))
+        if change > 0 {
+            txOuts.append(TransactionOutput(value: change, address: self.wallet.address))
+        }
+        let transaction = Transaction(inputs: signedTxIns, outputs: txOuts, lockTime: UInt32(Date().timeIntervalSince1970))
+
         // Add it to our mempool
         self.mempool.append(transaction)
 
+        // Update our UTXOs
+        // NOTE: Ideally UTXOs are updated only when a block is mined, but we have to have a way to avoid re-using UTXOs...
+        self.blockchain.updateSpendableOutputs(with: transaction)
+        
+        // Inform delegate
+        self.delegate?.node(self, didCreateTransactions: [transaction])
+
         // Broadcast new transaction to network
         for node in knownNodes(except: [self.address]) {
-            client.sendTransactionsMessage(TransactionsMessage(transactions: [transaction], fromAddress: self.address), to: node)
+            self.client.sendTransactionsMessage(TransactionsMessage(transactions: [transaction], fromAddress: self.address), to: node)
+            self.delegate?.node(self, didSendTransactions: [transaction])
         }
         
         return transaction
@@ -156,15 +185,16 @@ public class Node {
 
         // Create the new block
         let block = self.blockchain.createBlock(nonce: proof.nonce, hash: proof.hash, previousHash: previousHash, timestamp: timestamp, transactions: transactions)
-        
         // Clear mined transactions from the mempool
-        self.mempool.removeAll { (transaction) -> Bool in
-            return transactions.contains(transaction)
-        }
-        
+        let unminedTransations = self.mempool.filter { !transactions.contains($0) }
+        self.mempool = unminedTransations
+
+        self.delegate?.node(self, didCreateBlocks: [block])
+
         // Notify nodes about new block
         for node in self.knownNodes(except: [self.address]) {
-            client.sendBlocksMessage(BlocksMessage(blocks: [block], fromAddress: self.address), to: node)
+            self.client.sendBlocksMessage(BlocksMessage(blocks: [block], fromAddress: self.address), to: node)
+            self.delegate?.node(self, didSendBlocks: [block])
         }
         
         return block
@@ -187,6 +217,7 @@ extension Node: MessageListenerDelegate {
         if self.address.isCentralNode {
             if !self.knownNodes.contains(message.fromAddress) {
                 self.knownNodes.append(message.fromAddress)
+                self.delegate?.node(self, didAddPeer: message.fromAddress)
             }
         }
         os_log("\t\t- Known peers:\n%s", type: .info, self.knownNodes.map { $0.urlString }.joined(separator: ","))
@@ -210,6 +241,7 @@ extension Node: MessageListenerDelegate {
         let transactionsMessage = TransactionsMessage(transactions: self.mempool, fromAddress: self.address)
         os_log("\t - Sending transactions message", type: .info)
         client.sendTransactionsMessage(transactionsMessage, to: message.fromAddress)
+        delegate?.node(self, didSendTransactions: self.mempool)
     }
     
     public func didReceiveTransactionsMessage(_ message: TransactionsMessage) {
@@ -237,6 +269,8 @@ extension Node: MessageListenerDelegate {
         // Add verified transactions to mempool
         self.mempool.append(contentsOf: verifiedTransactions)
         
+        // Should we update UTXOs?
+        
         // Inform delegate
         self.delegate?.node(self, didReceiveTransactions: verifiedTransactions)
         
@@ -252,11 +286,13 @@ extension Node: MessageListenerDelegate {
         os_log("* Node %s received .getBlocks from %s", type: .info, self.address.urlString, message.fromAddress.urlString)
         if message.fromBlockHash.isEmpty {
             client.sendBlocksMessage(BlocksMessage(blocks: self.blockchain.blocks, fromAddress: self.address), to: message.fromAddress)
+            delegate?.node(self, didSendBlocks: self.blockchain.blocks)
         } else if let fromHashIndex = self.blockchain.blocks.firstIndex(where: { $0.hash == message.fromBlockHash }) {
             let requestedBlocks = Array<Block>(self.blockchain.blocks[fromHashIndex...])
             let blocksMessage = BlocksMessage(blocks: requestedBlocks, fromAddress: self.address)
             os_log("\t - Sending blocks message with %d blocks", type: .info, blocksMessage.blocks.count)
             client.sendBlocksMessage(blocksMessage, to: message.fromAddress)
+            delegate?.node(self, didSendBlocks: requestedBlocks)
         } else {
             os_log("\t - Unable to satisfy fromBlockHash=%s", type: .debug, message.fromBlockHash.hex)
         }
@@ -280,10 +316,8 @@ extension Node: MessageListenerDelegate {
             } else {
                 os_log("\t- Unable to verify block: %s", type: .debug, block.hash.hex)
             }
-
         }
         
-        // Inform delegate
         self.delegate?.node(self, didReceiveBlocks: validBlocks)
 
         // Central node is responsible for distributing the new transactions (nodes will handle verification internally)

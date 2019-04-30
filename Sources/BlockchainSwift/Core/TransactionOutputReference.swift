@@ -8,7 +8,7 @@
 import Foundation
 
 /// The out-point of a transaction, referened in TransactionInput
-public struct TransactionOutPoint: Codable, Serializable {
+public struct TransactionOutputReference: Codable, Serializable {
     /// The hash of the referenced transaction
     public let hash: Data
     
@@ -23,3 +23,8 @@ public struct TransactionOutPoint: Codable, Serializable {
     }
 }
 
+extension TransactionOutputReference: CustomDebugStringConvertible {
+    public var debugDescription: String {
+        return hash.readableHex
+    }
+}
