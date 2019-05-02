@@ -19,7 +19,7 @@ public struct TransactionOutput: Codable, Serializable {
     }
     
     public func isLockedWith(publicKeyHash: Data)  -> Bool {
-        return self.address == publicKeyHash
+        return address == publicKeyHash
     }
 
     public func serialized() -> Data {

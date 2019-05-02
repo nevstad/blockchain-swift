@@ -101,9 +101,11 @@ final class BlockchainSwiftTests: XCTestCase {
         let wallet1 = Wallet()!
         let wallet2 = Wallet()!
 
+        
+        let tx = Transaction.coinbase(address: wallet1.address, blockValue: 1)
         // Wallet 2 will try to steal all of Wallet 1's balance, which is here set to 100
-        let wallet1utxo = TransactionOutput(value: 100, address: wallet1.address)
-        let originalOutputData = wallet1utxo.serialized().sha256()
+        let wallet1utxo = UnspentTransaction(output: tx.outputs.first!, outpoint: TransactionOutputReference(hash: tx.txHash, index: 0))
+        let originalOutputData = wallet1utxo.outpoint.hash
 
         // Create a transaction and sign it, making sure first the sender has the right to claim the spendale outputs
         let signature1 = try wallet1.sign(utxo: wallet1utxo)
@@ -113,7 +115,7 @@ final class BlockchainSwiftTests: XCTestCase {
         XCTAssert(verified1, "Wallet1 should have been verified")
         XCTAssert(!verified2, "Wallet2 should not have been verified")
     }
-
+    
     func testTransactions() throws {
         // Two wallets, one blockchain
         let node1 = Node(address: NodeAddress.centralAddress())
@@ -124,31 +126,35 @@ final class BlockchainSwiftTests: XCTestCase {
         XCTAssert(node1.blockchain.balance(for: node1.wallet.address) == node1.blockchain.currentBlockValue())
         // Wallet2 is broke
         XCTAssert(node1.blockchain.balance(for: node2.wallet.address) == 0)
-
+        
         // Send 1000 from Wallet1 to Wallet2, and again let wallet1 mine the next block
-        let _ = try node1.createTransaction(recipientAddress: node2.wallet.address, value: 1000)
+        let _ = try node1.createTransaction(recipientAddress: node2.wallet.address, value: 1)
         XCTAssert(node1.mempool.count == 1) // One Tx should be in the pool, ready to go into the next block when mined
         let _ = node1.mineBlock()
         XCTAssert(node1.mempool.count == 0) // Tx pool should now be clear
-
+        
         // Wallet1 should now have a balance == two block rewards - 1000
-        XCTAssert(node1.blockchain.balance(for: node1.wallet.address) == (node1.blockchain.currentBlockValue() * 2) - 1000)
+        let node1Balance = node1.blockchain.balance(for: node1.wallet.address)
+        let expetedNode1Balance = (node1.blockchain.currentBlockValue() * 2) - 1
+        XCTAssert(node1Balance == expetedNode1Balance, "\(node1Balance) != \(expetedNode1Balance)")
         // Wallet 2 should have a balance == 1000
-        XCTAssert(node1.blockchain.balance(for: node2.wallet.address) == 1000)
-
+        let node2Balance = node1.blockchain.balance(for: node2.wallet.address)
+        let expectedNode2Balance = 1
+        XCTAssert(node2Balance == expectedNode2Balance, "\(node2Balance) != \(expectedNode2Balance)")
+        
         // Attempt to send more from Wallet1 than it currently has, expect failure
         do {
             let _ = try node1.createTransaction(recipientAddress: node2.wallet.address, value: UInt64.max)
             XCTAssert(false, "Overdraft")
         } catch { }
-
+        
         // Check sanity of utxo state, ensuring Wallet1 and Wallet2 has rights to their unspent outputs
         let utxosWallet1 = node1.blockchain.findSpendableOutputs(for: node1.wallet.address)
         let utxosWallet2 = node1.blockchain.findSpendableOutputs(for: node2.wallet.address)
-        XCTAssert(node1.wallet.canUnlock(utxos: utxosWallet1))
-        XCTAssert(!node1.wallet.canUnlock(utxos: utxosWallet2))
-        XCTAssert(node2.wallet.canUnlock(utxos: utxosWallet2))
-        XCTAssert(!node2.wallet.canUnlock(utxos: utxosWallet1))
+        XCTAssert(node1.wallet.canUnlock(utxos: utxosWallet1.map { $0.output }))
+        XCTAssert(!node1.wallet.canUnlock(utxos: utxosWallet2.map { $0.output }))
+        XCTAssert(node2.wallet.canUnlock(utxos: utxosWallet2.map { $0.output }))
+        XCTAssert(!node2.wallet.canUnlock(utxos: utxosWallet1.map { $0.output }))
     }
     
     func testNodeNetwork() {
@@ -173,7 +179,7 @@ final class BlockchainSwiftTests: XCTestCase {
         // Expect everyone's mempool to update with the new transaction
         let txSync = XCTestExpectation(description: "Sync transactions")
         do {
-            let _ = try node1.createTransaction(recipientAddress: node2.wallet.address, value: 100)
+            let _ = try node1.createTransaction(recipientAddress: node2.wallet.address, value: 1)
         } catch {
             XCTFail("Overdraft")
         }
@@ -207,8 +213,8 @@ final class BlockchainSwiftTests: XCTestCase {
             }
         }
         wait(for: [newNodeTxSync], timeout: 3)
-
-        // Now let node2 mine the next block, claiming the Coinbase reward as well as receiving 100 from the above transaction
+        
+        // Now let node2 mine the next block, claiming the Coinbase reward as well as receiving 1 from the above transaction
         // Expect every node's blocks to update, and everyones utxos to update appropriately
         let mineSync = XCTestExpectation(description: "Mining sync")
         let _ = node2.mineBlock()
@@ -223,12 +229,12 @@ final class BlockchainSwiftTests: XCTestCase {
                     node1.blockchain.balance(for: node2.wallet.address) == node2.blockchain.balance(for: node2.wallet.address),
                     node2.blockchain.balance(for: node2.wallet.address) == node3.blockchain.balance(for: node2.wallet.address),
                     node3.blockchain.balance(for: node2.wallet.address) == node4.blockchain.balance(for: node2.wallet.address),
-                    node1.blockchain.balance(for: node2.wallet.address) == node1.blockchain.currentBlockValue() + 100,
+                    node1.blockchain.balance(for: node2.wallet.address) == node1.blockchain.currentBlockValue() + 1,
                     
-                    node1.blockchain.balance(for: node1.wallet.address) == node1.blockchain.currentBlockValue() - 100,
-                    node2.blockchain.balance(for: node1.wallet.address) == node2.blockchain.currentBlockValue() - 100,
-                    node3.blockchain.balance(for: node1.wallet.address) == node3.blockchain.currentBlockValue() - 100,
-                    node4.blockchain.balance(for: node1.wallet.address) == node4.blockchain.currentBlockValue() - 100
+                    node1.blockchain.balance(for: node1.wallet.address) == node1.blockchain.currentBlockValue() - 1,
+                    node2.blockchain.balance(for: node1.wallet.address) == node2.blockchain.currentBlockValue() - 1,
+                    node3.blockchain.balance(for: node1.wallet.address) == node3.blockchain.currentBlockValue() - 1,
+                    node4.blockchain.balance(for: node1.wallet.address) == node4.blockchain.currentBlockValue() - 1
                 ]
                 if requirements.allSatisfy({ $0 == true}) {
                     mineSync.fulfill()
@@ -238,27 +244,28 @@ final class BlockchainSwiftTests: XCTestCase {
         }
         wait(for: [mineSync], timeout: 3)
     }
-
+    
     func testNodeStatePersistence() {
         // Create a Node, mine a block, and add a transaction - then persist it's state
         let node = Node(address: NodeAddress(host: "localhost", port: 8080))
         let _ = node.mineBlock()
         let _ = try? node.createTransaction(recipientAddress: node.wallet.address, value: 1000)
         node.saveState()
+        var state = Node.loadState()
         
         // A new Node loadState true should get state from previous node
-        let node2 = Node(address: NodeAddress(host: "localhost", port: 8080), wallet: state.wallet, blockchain: state.blockchain, mempool: state.mempool))
+        let node2 = Node(address: NodeAddress(host: "localhost", port: 8080), wallet: state.wallet, blockchain: state.blockchain, mempool: state.mempool)
         XCTAssert(node.blockchain.blocks.count == node2.blockchain.blocks.count)
-        XCTAssert(node.mempool.count == node2.blockchain.blocks.count)
-
+        XCTAssert(node.mempool.count == node2.mempool.count)
+        
         // A new node with loadState false should not share state
         let node3 = Node(address: NodeAddress(host: "localhost", port: 1337))
         XCTAssert(node3.blockchain.blocks.count == 0)
         XCTAssert(node3.mempool.count == 0)
-
+        
         // After clearing the state of our first Node, a new node should load empty state
         node.clearState()
-        let state = node.loadState()
+        state = Node.loadState()
         let node5 = Node(address: NodeAddress(host: "localhost", port: 8080), wallet: state.wallet, blockchain: state.blockchain, mempool: state.mempool)
         XCTAssert(node5.blockchain.blocks.count == 0)
         XCTAssert(node5.mempool.count == 0)
@@ -271,5 +278,5 @@ final class BlockchainSwiftTests: XCTestCase {
         ("testTransactions", testTransactions),
         ("testNodeNetwork", testNodeNetwork)
     ]
-
+    
 }

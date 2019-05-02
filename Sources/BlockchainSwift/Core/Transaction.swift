@@ -20,7 +20,7 @@ public struct Transaction: Codable, Serializable {
     /// Transaction hash
     public var txHash: Data {
         get {
-            return self.serialized().sha256()
+            return serialized().sha256()
         }
     }
     
@@ -45,7 +45,7 @@ public struct Transaction: Codable, Serializable {
     }
     
     public static func coinbase(address: Data, blockValue: UInt64) -> Transaction {
-        let coinbaseTxOutPoint = TransactionOutputReference(hash: Data(), index: 0)
+        let coinbaseTxOutPoint = TransactionOutputReference(hash: "spazzy".data(using: .utf8)!, index: 0)
         let coinbaseTxIn = TransactionInput(previousOutput: coinbaseTxOutPoint, publicKey: address, signature: Data())
         let txIns:[TransactionInput] = [coinbaseTxIn]
         let txOuts:[TransactionOutput] = [TransactionOutput(value: blockValue, address: address)]
@@ -61,9 +61,6 @@ extension Transaction: Equatable {
 
 extension Transaction: CustomStringConvertible {
     public var description: String {
-//        let encoder = JSONEncoder()
-//        encoder.outputFormatting = .prettyPrinted
-//        return String(data: try! encoder.encode(self), encoding: .utf8)!
         let ins = "ins: \(inputs.map { $0.previousOutput.hash.readableHex }.joined(separator: ", "))"
         let outs = "outs: (\(outputs.map { "\($0.value) -> \($0.address.readableHex)" }.joined(separator: ", ")))"
         return "Transaction (id: \(Data(txHash.reversed()).readableHex), \(ins), \(outs))"
@@ -79,19 +76,3 @@ extension Transaction: CustomStringConvertible {
         return (from: from, to: to, amount: amount, change: change)
     }
 }
-
-public extension Array where Element == Transaction {
-    public func expenditure(for wallet: Wallet) -> UInt64 {
-        var amount: UInt64 = 0
-        forEach { tx in
-            if tx.inputs.first?.publicKey == wallet.publicKey {
-                amount += tx.outputs
-                    .filter { $0.address != wallet.address }
-                    .map{ $0.value }
-                    .reduce(0, +)
-            }
-        }
-        return amount
-    }
-}
-

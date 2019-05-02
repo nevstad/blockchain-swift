@@ -41,12 +41,12 @@ public class Blockchain: Codable {
     
     /// Returns the last block in the blockchain. Fatal error if we have no blocks.
     public func lastBlockHash() -> Data {
-        return self.blocks.last?.hash ?? Data()
+        return blocks.last?.hash ?? Data()
     }
     
     /// Get the block value, or the block reward, at current block height
     public func currentBlockValue() -> UInt64 {
-        return Coin.blockReward(at: UInt64(self.blocks.count))
+        return Coin.blockReward(at: UInt64(blocks.count))
     }
     
     /// Create a new block in the chain
@@ -58,36 +58,45 @@ public class Blockchain: Codable {
     @discardableResult
     public func createBlock(nonce: UInt32, hash: Data, previousHash: Data, timestamp: UInt32, transactions: [Transaction]) -> Block {
         let block = Block(timestamp: timestamp, transactions: transactions, nonce: nonce, hash: hash, previousHash: previousHash)
-        self.blocks.append(block)
-        self.updateSpendableOutputs(with: block)
+        blocks.append(block)
+        updateSpendableOutputs(with: block)
         return block
     }
     
     /// Finds UTXOs for a specified address
     /// - Parameter address: The wallet address whose UTXOs we want to find
     public func findSpendableOutputs(for address: Data) -> [UnspentTransaction] {
-        return self.utxos.filter({ $0.output.address == address })
+        return utxos.filter({ $0.output.address == address })
     }
     
     /// Updates UTXOs when a new block is added
-    /// - Parameter block: The block that has been added, whose transactions we must go through to find the nes UTXO state
+    /// - Parameter block: The block that has been added, whose transactions we must go through to find the new UTXO state
     public func updateSpendableOutputs(with block: Block) {
         os_log("pre: %s", type: .debug, utxos.debugDescription)
-        
         for transaction in block.transactions {
             updateSpendableOutputs(with: transaction)
         }
         os_log("post: %s", type: .debug, utxos.debugDescription)
     }
     
+    /// Updates UTXOs when a new block is added
+    /// - Parameter transactions: The new transactions we must go through to find the new UTXO state
     public func updateSpendableOutputs(with transaction: Transaction) {
-        for input in transaction.inputs {
-            self.utxos.removeAll { (unspentTransaction) -> Bool in
-                return unspentTransaction.outpoint.hash == input.previousOutput.hash
+        // Because we update UTXOs when creating unmined transactions (and thereby have a different UTXO state
+        // than the rest of the network), we have to exclude thesetransactions whose output references are already used
+        guard !utxos.map({ $0.outpoint.hash }).contains(transaction.txHash) else { return }
+        
+        // For non-Coinbase transaction we must remove UTXOs that reference this transactions inputs
+        if !transaction.isCoinbase {
+            transaction.inputs.map { $0.previousOutput }.forEach { prevOut in
+                utxos = utxos.filter { $0.outpoint != prevOut }
             }
         }
+        // For all transaction outputs we create a new UTXO
         for (index, output) in transaction.outputs.enumerated() {
-            self.utxos.append(UnspentTransaction(output: output, outpoint: TransactionOutputReference(hash: transaction.txHash, index: UInt32(index))))
+            let outputReference = TransactionOutputReference(hash: transaction.txHash, index: UInt32(index))
+            let unspentTransaction = UnspentTransaction(output: output, outpoint: outputReference)
+            utxos.append(unspentTransaction)
         }
     }
     
@@ -100,7 +109,7 @@ public class Blockchain: Codable {
     /// Finds a transaction by id, iterating through every block (to optimize this, look into Merkle trees).
     /// - Parameter txHash: The Transaction hash
     public func findTransaction(txHash: Data) -> Transaction? {
-        for block in self.blocks {
+        for block in blocks {
             for transaction in block.transactions {
                 if transaction.txHash == txHash {
                     return transaction
@@ -110,10 +119,12 @@ public class Blockchain: Codable {
         return nil
     }
 
+    /// Returns the Transaction history for a specified address
+    /// - Parameter address: The specifed address
     public func findTransactions(for address: Data) -> (sent: [Transaction], received: [Transaction]) {
         var sent: [Transaction] = []
         var received: [Transaction] = []
-        for block in self.blocks {
+        for block in blocks {
             for transaction in block.transactions {
                 let summary = transaction.summary()
                 if summary.from == address {

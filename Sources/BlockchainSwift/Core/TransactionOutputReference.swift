@@ -28,3 +28,9 @@ extension TransactionOutputReference: CustomDebugStringConvertible {
         return hash.readableHex
     }
 }
+
+extension TransactionOutputReference: Equatable {
+    public static func == (lhs: TransactionOutputReference, rhs: TransactionOutputReference) -> Bool {
+        return lhs.hash == rhs.hash && lhs.index == rhs.index
+    }
+}
