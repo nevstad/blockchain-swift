@@ -4,7 +4,7 @@ import XCTest
 final class BlockchainSwiftTests: XCTestCase {
     
     func testKeyGenAndTxSigning() {
-        if let keyPair = ECDSA.generateKeyPair() {
+        if let keyPair = ECDSA.generateKeyPair(name: "TempPair") {
             if let pubKeyData = ECDSA.copyExternalRepresentation(key: keyPair.publicKey) {
                 let address = pubKeyData.sha256().sha256()
                 let utxo = TransactionOutput(value: 100, address: address)
@@ -25,10 +25,10 @@ final class BlockchainSwiftTests: XCTestCase {
     }
     
     func testKeyRestoreData() {
-        if let keyPair = ECDSA.generateKeyPair(),
+        if let keyPair = ECDSA.generateKeyPair(name: "TempPair"),
             let privKeyData = ECDSA.copyExternalRepresentation(key: keyPair.privateKey),
             let pubKeyData = ECDSA.copyExternalRepresentation(key: keyPair.publicKey) {
-            if let restoredKeyPair = ECDSA.generateKeyPair(privateKeyData: privKeyData),
+            if let restoredKeyPair = ECDSA.generateKeyPair(name: "TempPair", privateKeyData: privKeyData),
                 let restoredPrivKeyData = ECDSA.copyExternalRepresentation(key: restoredKeyPair.privateKey),
                 let restoredPubKeyData = ECDSA.copyExternalRepresentation(key: restoredKeyPair.publicKey) {
                 XCTAssert(privKeyData.hex == restoredPrivKeyData.hex, "Mismatching private keys")
@@ -42,10 +42,10 @@ final class BlockchainSwiftTests: XCTestCase {
     }
     
     func testKeyRestoreHex() {
-        if let keyPair = ECDSA.generateKeyPair(),
+        if let keyPair = ECDSA.generateKeyPair(name: "TempPair"),
             let privKeyData = ECDSA.copyExternalRepresentation(key: keyPair.privateKey),
             let pubKeyData = ECDSA.copyExternalRepresentation(key: keyPair.publicKey) {
-            if let restoredKeyPair = ECDSA.generateKeyPair(privateKeyHex: privKeyData.hex),
+            if let restoredKeyPair = ECDSA.generateKeyPair(name: "TempPairRestored", privateKeyHex: privKeyData.hex),
                 let restoredPrivKeyData = ECDSA.copyExternalRepresentation(key: restoredKeyPair.privateKey),
                 let restoredPubKeyData = ECDSA.copyExternalRepresentation(key: restoredKeyPair.publicKey) {
                 XCTAssert(privKeyData.hex == restoredPrivKeyData.hex, "Mismatching private keys")
@@ -58,11 +58,33 @@ final class BlockchainSwiftTests: XCTestCase {
         }
     }
     
+    func testWalletStore() {
+        let wallet = Wallet(name: "TempPair", storeInKeychain: true)!
+        let duplicateWallet = Wallet(name: "TempPair")!
+        let duplicateEqualToOriginal =
+            wallet.secPrivateKey == duplicateWallet.secPrivateKey &&
+                wallet.secPublicKey == duplicateWallet.secPublicKey &&
+                wallet.publicKey == duplicateWallet.publicKey &&
+                wallet.address == duplicateWallet.address
+        XCTAssert(duplicateEqualToOriginal)
+        let restoredKeyPair = ECDSA.loadKeyPairFromKeychain(name: "TempPair")!
+        ECDSA.clearKeychainKeys(name: "TempPair")
+        let failedRestorePair = ECDSA.loadKeyPairFromKeychain(name: "TempPair")
+        XCTAssert(failedRestorePair == nil)
+        let restoredWallet = Wallet(name: "TempPair", keyPair: restoredKeyPair)
+        let restoreEqualToOriginal =
+            wallet.secPrivateKey == restoredWallet.secPrivateKey &&
+            wallet.secPublicKey == restoredWallet.secPublicKey &&
+            wallet.publicKey == restoredWallet.publicKey &&
+            wallet.address == restoredWallet.address
+        XCTAssert(restoreEqualToOriginal)
+    }
+    
     func testKeyRestoreAndTxSigning() {
-        if let keyPair = ECDSA.generateKeyPair(),
+        if let keyPair = ECDSA.generateKeyPair(name: "TempPair"),
             let privKeyData = ECDSA.copyExternalRepresentation(key: keyPair.privateKey),
             let pubKeyData = ECDSA.copyExternalRepresentation(key: keyPair.publicKey) {
-            if let restoredKeyPair = ECDSA.generateKeyPair(privateKeyData: privKeyData),
+            if let restoredKeyPair = ECDSA.generateKeyPair(name: "TempPair", privateKeyData: privKeyData),
                 let restoredPrivKeyData = ECDSA.copyExternalRepresentation(key: restoredKeyPair.privateKey),
                 let restoredPubKeyData = ECDSA.copyExternalRepresentation(key: restoredKeyPair.publicKey) {
                 XCTAssert(privKeyData.hex == restoredPrivKeyData.hex, "Mismatching private keys")
@@ -98,9 +120,8 @@ final class BlockchainSwiftTests: XCTestCase {
     }
     
     func testWalletTxSigning() throws {
-        let wallet1 = Wallet()!
-        let wallet2 = Wallet()!
-
+        let wallet1 = Wallet(name: "Wallet 1")!
+        let wallet2 = Wallet(name: "Wallet 2")!
         
         let tx = Transaction.coinbase(address: wallet1.address, blockValue: 1)
         // Wallet 2 will try to steal all of Wallet 1's balance, which is here set to 100
@@ -254,7 +275,7 @@ final class BlockchainSwiftTests: XCTestCase {
         var state = Node.loadState()
         
         // A new Node loadState true should get state from previous node
-        let node2 = Node(address: NodeAddress(host: "localhost", port: 8080), wallet: state.wallet, blockchain: state.blockchain, mempool: state.mempool)
+        let node2 = Node(address: NodeAddress(host: "localhost", port: 8080), wallet: node.wallet, blockchain: state.blockchain, mempool: state.mempool)
         XCTAssert(node.blockchain.blocks.count == node2.blockchain.blocks.count)
         XCTAssert(node.mempool.count == node2.mempool.count)
         
@@ -266,13 +287,16 @@ final class BlockchainSwiftTests: XCTestCase {
         // After clearing the state of our first Node, a new node should load empty state
         node.clearState()
         state = Node.loadState()
-        let node5 = Node(address: NodeAddress(host: "localhost", port: 8080), wallet: state.wallet, blockchain: state.blockchain, mempool: state.mempool)
+        let node5 = Node(address: NodeAddress(host: "localhost", port: 8080), wallet: node.wallet, blockchain: state.blockchain, mempool: state.mempool)
         XCTAssert(node5.blockchain.blocks.count == 0)
         XCTAssert(node5.mempool.count == 0)
     }
     
     static let allTests = [
         ("testKeyGenAndTxSigning", testKeyGenAndTxSigning),
+        ("testKeyRestoreData", testKeyRestoreData),
+        ("testKeyRestoreHex", testKeyRestoreHex),
+        ("testWalletStore", testWalletStore),
         ("testKeyRestoreAndTxSigning", testKeyRestoreAndTxSigning),
         ("testWalletTxSigning", testWalletTxSigning),
         ("testTransactions", testTransactions),

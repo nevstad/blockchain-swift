@@ -70,7 +70,7 @@ public class Node {
         self.address = address
         self.blockchain = blockchain ?? Blockchain()
         self.mempool = mempool ?? [Transaction]()
-        self.wallet = wallet ?? Wallet()!
+        self.wallet = wallet ?? Wallet(name: "Default Wallet")!
         
         // Handle outcoing connections
         messageSender = NWConnectionMessageSender()
@@ -270,6 +270,8 @@ extension Node: MessageListenerDelegate {
         mempool.append(contentsOf: verifiedTransactions)
         
         // Should we update UTXOs?
+        // NOTE: Ideally UTXOs are updated only when a block is mined, but we have to have a way to avoid re-using UTXOs...
+        verifiedTransactions.forEach { self.blockchain.updateSpendableOutputs(with: $0) }
         
         // Inform delegate
         delegate?.node(self, didReceiveTransactions: verifiedTransactions)
@@ -333,20 +335,17 @@ extension Node {
     public func saveState() {
         try? UserDefaultsBlockchainStore().save(blockchain)
         try? UserDefaultsTransactionsStore().save(mempool)
-        try? UserDefaultsWalletStore().save(wallet)
     }
     
     public func clearState() {
         UserDefaultsBlockchainStore().clear()
         UserDefaultsTransactionsStore().clear()
-        UserDefaultsWalletStore().clear()
     }
     
-    public static func loadState() -> (blockchain: Blockchain?, mempool: [Transaction]?, wallet: Wallet?) {
+    public static func loadState() -> (blockchain: Blockchain?, mempool: [Transaction]?) {
         let bc = UserDefaultsBlockchainStore().load()
         let mp = UserDefaultsTransactionsStore().load()
-        let wl = UserDefaultsWalletStore().load()
-        return (blockchain: bc, mempool: mp, wallet: wl)
+        return (blockchain: bc, mempool: mp)
     }
 }
 
@@ -368,6 +367,11 @@ extension UserDefaults {
     }
 }
 
+enum StoreError: Error {
+    case loadError
+    case saveError
+}
+
 protocol BlockchainStore {
     func save(_ blockchain: Blockchain) throws
     func load() -> Blockchain?
@@ -377,12 +381,6 @@ protocol BlockchainStore {
 protocol TransactionsStore {
     func save(_ transactions: [Transaction]) throws
     func load() -> [Transaction]?
-    func clear()
-}
-
-protocol WalletStore {
-    func save(_ wallet: Wallet) throws
-    func load() -> Wallet?
     func clear()
 }
 
@@ -419,25 +417,5 @@ class UserDefaultsTransactionsStore: TransactionsStore {
 
     func clear() {
         UserDefaults.blockchainSwift.setData(nil, forKey: .transactions)
-    }
-}
-
-// TODO: It is obviously a bad idea to store the private key in this insecure manner
-class UserDefaultsWalletStore: WalletStore {
-    enum WalletStoreError: Error {
-        case saveError
-    }
-    func save(_ wallet: Wallet) throws {
-        guard let walletData = wallet.exportPrivateKey() else { throw WalletStoreError.saveError }
-        UserDefaults.blockchainSwift.setData(walletData, forKey: .wallet)
-    }
-    
-    func load() -> Wallet? {
-        guard let walletData = UserDefaults.blockchainSwift.getData(forKey: .wallet) else { return nil }
-        return Wallet(privateKeyData: walletData)
-    }
-
-    func clear() {
-        UserDefaults.blockchainSwift.setData(nil, forKey: .wallet)
     }
 }

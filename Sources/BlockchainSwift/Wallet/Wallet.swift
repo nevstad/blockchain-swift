@@ -9,8 +9,8 @@ import Foundation
 
 public class Wallet {
     /// Key pair
-    private let secPrivateKey: SecKey
-    private let secPublicKey: SecKey
+    public let secPrivateKey: SecKey
+    public let secPublicKey: SecKey
     
     /// Public Key represented as data
     public let publicKey: Data
@@ -18,13 +18,21 @@ public class Wallet {
     /// This wallet's address in readable format, double SHA256 hash'ed
     public var address: Data
     
+    /// The name of this wallet
+    public var name: String
+    
+    public init(name: String, keyPair: KeyPair) {
+        self.name = name
+        self.secPrivateKey = keyPair.privateKey
+        self.secPublicKey = keyPair.publicKey
+        self.publicKey = ECDSA.copyExternalRepresentation(key: keyPair.publicKey)!
+        self.address = self.publicKey.toAddress()
+    }
+    
     /// Initalizes a Wallet with randomly generated keys
-    public init?() {
-        if let keyPair = ECDSA.generateKeyPair(), let publicKeyCopy = ECDSA.copyExternalRepresentation(key: keyPair.publicKey) {
-            self.secPrivateKey = keyPair.privateKey
-            self.secPublicKey = keyPair.publicKey
-            self.publicKey = publicKeyCopy
-            self.address = self.publicKey.toAddress()
+    public convenience init?(name: String, storeInKeychain: Bool = false) {
+        if let keyPair = ECDSA.generateKeyPair(name: name, storeInKeychain: storeInKeychain) {
+            self.init(name: name, keyPair: keyPair)
         } else {
             return nil
         }
@@ -32,12 +40,9 @@ public class Wallet {
 
     /// Initalizes a Wallet with keys restored from private key data
     /// - Parameter privateKeyData: The private key data
-    public init?(privateKeyData: Data) {
-        if let keyPair = ECDSA.generateKeyPair(privateKeyData: privateKeyData), let publicKeyCopy = ECDSA.copyExternalRepresentation(key: keyPair.publicKey) {
-            self.secPrivateKey = keyPair.privateKey
-            self.secPublicKey = keyPair.publicKey
-            self.publicKey = publicKeyCopy
-            self.address = self.publicKey.toAddress()
+    public convenience init?(name: String, privateKeyData: Data, storeInKeychain: Bool = false) {
+        if let keyPair = ECDSA.generateKeyPair(name: name, privateKeyData: privateKeyData, storeInKeychain: storeInKeychain) {
+            self.init(name: name, keyPair: keyPair)
         } else {
             return nil
         }
@@ -45,12 +50,9 @@ public class Wallet {
 
     /// Initalizes a Wallet with keys restored from private key hex
     /// - Parameter privateKeyHex: The private key hex
-    public init?(privateKeyHex: String) {
-        if let keyPair = ECDSA.generateKeyPair(privateKeyHex: privateKeyHex), let publicKeyCopy = ECDSA.copyExternalRepresentation(key: keyPair.publicKey) {
-            self.secPrivateKey = keyPair.privateKey
-            self.secPublicKey = keyPair.publicKey
-            self.publicKey = publicKeyCopy
-            self.address = self.publicKey.toAddress()
+    public convenience init?(name: String, privateKeyHex: String, storeInKeychain: Bool = false) {
+        if let keyPair = ECDSA.generateKeyPair(name: name, privateKeyHex: privateKeyHex, storeInKeychain: storeInKeychain) {
+            self.init(name: name, keyPair: keyPair)
         } else {
             return nil
         }
