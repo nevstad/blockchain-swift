@@ -12,6 +12,6 @@ extension Wallet {
     public func generateQRCode() -> CIImage? {
         guard let privateKeyData = exportPrivateKey(), let qrFilter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
         qrFilter.setValue(privateKeyData, forKey: "inputMessage")
-        return qrFilter.outputImage
+        return qrFilter.outputImage?.transformed(by: CGAffineTransform(scaleX: 10, y: 10))
     }
 }
