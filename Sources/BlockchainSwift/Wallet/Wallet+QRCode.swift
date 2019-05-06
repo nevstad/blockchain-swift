@@ -7,11 +7,27 @@
 
 import CoreImage
 
-extension Wallet {
+protocol QRCodeRepresentable {
+    func generateQRCode() -> CIImage?
+}
+
+extension Data: QRCodeRepresentable {
+    public func generateQRCode() -> CIImage? {
+        guard let qrFilter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
+        qrFilter.setValue(self, forKey: "inputMessage")
+        return qrFilter.outputImage?.transformed(by: CGAffineTransform(scaleX: 10, y: 10))
+    }
+}
+
+extension String: QRCodeRepresentable {
+    public func generateQRCode() -> CIImage? {
+        return data(using: .utf8)?.generateQRCode()
+    }
+}
+
+extension Wallet: QRCodeRepresentable {
     // Generate a QR-code image of the private key
     public func generateQRCode() -> CIImage? {
-        guard let privateKeyData = exportPrivateKey(), let qrFilter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
-        qrFilter.setValue(privateKeyData, forKey: "inputMessage")
-        return qrFilter.outputImage?.transformed(by: CGAffineTransform(scaleX: 10, y: 10))
+        return exportPrivateKey()?.hex.generateQRCode()
     }
 }
