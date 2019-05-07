@@ -15,9 +15,15 @@ protocol QRCodeConvertible {
 extension QRCodeConvertible {
     public func generateQRCode() -> CIImage? {
         guard let qrFilter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
-        qrFilter.setValue(qrCodeString, forKey: "inputMessage")
+        qrFilter.setValue(qrCodeString.data(using: .utf8), forKey: "inputMessage")
         qrFilter.setValue("L", forKey: "inputCorrectionLevel")
         return qrFilter.outputImage?.transformed(by: CGAffineTransform(scaleX: 10, y: 10))
+    }
+}
+
+extension String: QRCodeConvertible {
+    public var qrCodeString: String {
+        return self
     }
 }
 
