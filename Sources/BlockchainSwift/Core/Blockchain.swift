@@ -25,6 +25,10 @@ public class Blockchain: Codable {
         static func coinValue(satoshis: UInt64) -> Double {
             return Double(satoshis) / Double(Coin.satoshis)
         }
+        
+        static func satoshisValue(coinValue: Double) -> UInt64 {
+            return UInt64(coinValue * Double(Blockchain.Coin.satoshis))
+        }
     }
     
     /// The blockchain
