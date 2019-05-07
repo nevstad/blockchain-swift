@@ -14,7 +14,6 @@ A Blockchain implementation that loosely mimics Bitcoin's key features.
 
 * 🌐 P2P Decentralization
 * 🗄 Advanced Persistence
-* 🤝 Consensus Algorithm
 
 ## 🚦 Requirements
 
