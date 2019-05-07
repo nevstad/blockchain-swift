@@ -18,7 +18,7 @@ protocol NodeDelegate {
     func node(_ node: Node, didReceiveBlocks blocks: [Block])
 }
 
-/// In our simplistic network, we have _one_ central Node, with an arbitrary amount of Miners and Wallets.
+/// In our simplistic network, we have _one_ central Node, with an arbitrary amount of Miners / Wallets.
 /// - Central: The hub which all others connect to, and is responsible for syncronizing data accross them. There can only be one.
 /// - Miner: Stores new transactions in a mempool, and will put them into blocks once mined. Needs to store the entire chainstate.
 /// - Wallet: Sends coins between wallets, and (unlike Bitcoins optimized SPV nodes) needs to store the entire chainstate.
@@ -45,9 +45,6 @@ public class Node {
     
     /// Transaction pool holds all transactions to go into the next block
     public var mempool: [Transaction]
-
-    // The wallet associated with this Node
-    public let wallet: Wallet
     
     /// Node network
     var messageListener: MessageListener
@@ -70,7 +67,6 @@ public class Node {
         self.address = address
         self.blockchain = blockchain ?? Blockchain()
         self.mempool = mempool ?? [Transaction]()
-        self.wallet = wallet ?? Wallet(name: "Default Wallet")!
         
         // Handle outcoing connections
         messageSender = NWConnectionMessageSender()
@@ -95,24 +91,24 @@ public class Node {
     /// - Parameters:
     ///     - recipientAddress: The recipient's Wallet address
     ///     - value: The value to transact
-    public func createTransaction(recipientAddress: Data, value: UInt64) throws -> Transaction {
+    public func createTransaction(sender: Wallet, recipientAddress: Data, value: UInt64) throws -> Transaction {
         if value == 0 {
             throw TxError.invalidValue
         }
         
-        if recipientAddress == wallet.address {
+        if recipientAddress == sender.address {
             throw TxError.sourceEqualDestination
         }
         
         // Calculate transaction value and change, based on the sender's balance and the transaction's value
         // - All utxos for the sender must be spent, and are indivisible.
-        let balance = blockchain.balance(for: wallet.address)
+        let balance = blockchain.balance(for: sender.address)
         if value > balance {
             throw TxError.insufficientBalance
         }
         
         // Create a transaction and sign it, making sure first the sender has the right to claim the spendale outputs
-        let spendableOutputs = blockchain.findSpendableOutputs(for: wallet.address)
+        let spendableOutputs = blockchain.findSpendableOutputs(for: sender.address)
         var usedSpendableOutputs = [UnspentTransaction]()
         var spendValue: UInt64 = 0
         for availableSpendableOutput in spendableOutputs {
@@ -127,12 +123,11 @@ public class Node {
             throw TxError.insufficientBalance
         }
         let change = spendValue - value
-//        let change = balance - value
         
-        guard let signedTxIns = try? wallet.sign(utxos: usedSpendableOutputs) else { throw TxError.unverifiedTransaction }
+        guard let signedTxIns = try? sender.sign(utxos: usedSpendableOutputs) else { throw TxError.unverifiedTransaction }
         for (i, txIn) in signedTxIns.enumerated() {
             let originalOutputData = usedSpendableOutputs[i].outpoint.hash
-            if !ECDSA.verify(publicKey: wallet.publicKey, data: originalOutputData, signature: txIn.signature) {
+            if !Keysign.verify(publicKey: sender.publicKey, data: originalOutputData, signature: txIn.signature) {
                 throw TxError.unverifiedTransaction
             }
         }
@@ -141,7 +136,7 @@ public class Node {
         var txOuts = [TransactionOutput]()
         txOuts.append(TransactionOutput(value: value, address: recipientAddress))
         if change > 0 {
-            txOuts.append(TransactionOutput(value: change, address: wallet.address))
+            txOuts.append(TransactionOutput(value: change, address: sender.address))
         }
         let transaction = Transaction(inputs: signedTxIns, outputs: txOuts, lockTime: UInt32(Date().timeIntervalSince1970))
 
@@ -165,13 +160,13 @@ public class Node {
     }
 
     /// Attempts to mine the next block, placing Transactions currently in the mempool into the new block
-    public func mineBlock() -> Block {
+    public func mineBlock(minerAddress: Data) -> Block {
         // Caution: Beware of state change mid-mine, ie. new transaction or (even worse) a new block.
         //          We need to reset mining if a new block arrives, we have to remove txs from mempool that are in this new received block,
         //          and we must update utxos... When resolving conflicts, the block timestamp is relevant
 
         // Generate a coinbase tx to reward block miner
-        let coinbaseTx = Transaction.coinbase(address: wallet.address, blockValue: blockchain.currentBlockValue())
+        let coinbaseTx = Transaction.coinbase(address: minerAddress, blockValue: blockchain.currentBlockValue())
         mempool.append(coinbaseTx)
 
         // TODO: Implement mining fees
@@ -256,7 +251,7 @@ extension Node: MessageListenerDelegate {
             }
             let verifiedInputs = transaction.inputs.filter { input in
                 // TODO: Do we need to look up a local version of the output used, in order to do proper verification?
-                return ECDSA.verify(publicKey: input.publicKey, data: input.previousOutput.hash, signature: input.signature)
+                return Keysign.verify(publicKey: input.publicKey, data: input.previousOutput.hash, signature: input.signature)
             }
             if verifiedInputs.count == transaction.inputs.count {
                 os_log("\t- Added transaction %s", type: .info, transaction.txId)

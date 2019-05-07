@@ -25,13 +25,13 @@ public class Wallet {
         self.name = name
         self.secPrivateKey = keyPair.privateKey
         self.secPublicKey = keyPair.publicKey
-        self.publicKey = ECDSA.copyExternalRepresentation(key: keyPair.publicKey)!
+        self.publicKey = Keygen.copyExternalRepresentation(key: keyPair.publicKey)!
         self.address = self.publicKey.toAddress()
     }
     
     /// Initalizes a Wallet with randomly generated keys
     public convenience init?(name: String, storeInKeychain: Bool = false) {
-        if let keyPair = ECDSA.generateKeyPair(name: name, storeInKeychain: storeInKeychain) {
+        if let keyPair = Keygen.generateKeyPair(name: name, storeInKeychain: storeInKeychain) {
             self.init(name: name, keyPair: keyPair)
         } else {
             return nil
@@ -41,7 +41,7 @@ public class Wallet {
     /// Initalizes a Wallet with keys restored from private key data
     /// - Parameter privateKeyData: The private key data
     public convenience init?(name: String, privateKeyData: Data, storeInKeychain: Bool = false) {
-        if let keyPair = ECDSA.generateKeyPair(name: name, privateKeyData: privateKeyData, storeInKeychain: storeInKeychain) {
+        if let keyPair = Keygen.generateKeyPair(name: name, privateKeyData: privateKeyData, storeInKeychain: storeInKeychain) {
             self.init(name: name, keyPair: keyPair)
         } else {
             return nil
@@ -51,7 +51,7 @@ public class Wallet {
     /// Initalizes a Wallet with keys restored from private key hex
     /// - Parameter privateKeyHex: The private key hex
     public convenience init?(name: String, privateKeyHex: String, storeInKeychain: Bool = false) {
-        if let keyPair = ECDSA.generateKeyPair(name: name, privateKeyHex: privateKeyHex, storeInKeychain: storeInKeychain) {
+        if let keyPair = Keygen.generateKeyPair(name: name, privateKeyHex: privateKeyHex, storeInKeychain: storeInKeychain) {
             self.init(name: name, keyPair: keyPair)
         } else {
             return nil
@@ -73,7 +73,7 @@ public class Wallet {
     /// Signs a TransactionOutput with this Wallet's privateKey
     /// - Parameter utxo: Unspent transaction output (utxo) represents spendable coins
     public func sign(utxo: UnspentTransaction) throws -> Data {
-        return try ECDSA.sign(data: utxo.outpoint.hash, with: secPrivateKey)
+        return try Keysign.sign(data: utxo.outpoint.hash, with: secPrivateKey)
     }
     
     /// Checks if Unspent Transaction Outputs (utxo) can be unlocked by this Wallet
@@ -85,6 +85,6 @@ public class Wallet {
     
     /// Exports the private key as Data
     public func exportPrivateKey() -> Data? {
-        return ECDSA.copyExternalRepresentation(key: secPrivateKey)
+        return Keygen.copyExternalRepresentation(key: secPrivateKey)
     }
 }
