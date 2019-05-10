@@ -76,3 +76,4 @@ extension Transaction: CustomStringConvertible {
         return (from: from, to: to, amount: amount, change: change)
     }
 }
+

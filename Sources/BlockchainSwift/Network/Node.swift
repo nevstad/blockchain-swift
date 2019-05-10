@@ -63,7 +63,7 @@ public class Node {
     /// Create a new Node
     /// - Parameter address: This Node's address
     /// - Parameter wallet: This Node's wallet, created if nil
-    init(address: NodeAddress, wallet: Wallet? = nil, blockchain: Blockchain? = nil, mempool: [Transaction]? = nil) {
+    init(address: NodeAddress, blockchain: Blockchain? = nil, mempool: [Transaction]? = nil) {
         self.address = address
         self.blockchain = blockchain ?? Blockchain()
         self.mempool = mempool ?? [Transaction]()
@@ -71,9 +71,10 @@ public class Node {
         // Handle outcoing connections
         messageSender = NWConnectionMessageSender()
         // Set up server to listen on incoming requests
-        messageListener = NWListenerMessageListener(port: UInt16(address.port)) { newState in
-            print(newState)
-        }
+//        messageListener = NWListenerMessageListener(port: UInt16(address.port)) { newState in
+//            print(newState)
+//        }
+        messageListener = NIOMessageListener(host: address.host, port: Int(address.port))
         messageListener.delegate = self
 
         // All nodes must know of the central node, and connect to it (unless self is central node)
