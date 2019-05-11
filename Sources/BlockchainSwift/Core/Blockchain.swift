@@ -35,7 +35,7 @@ public class Blockchain: Codable {
     public private(set) var blocks: [Block] = []
     
     /// Proof of Work Algorithm
-    public private(set) var pow = ProofOfWork(difficulty: 3)
+    public var pow = ProofOfWork(difficulty: 3)
     
     /// Unspent Transaction Outputs
     /// - This class keeps track off all current UTXOs, providing a quick lookup for balances and creating new transactions.
@@ -141,4 +141,15 @@ public class Blockchain: Codable {
         return (sent: sent, received: received)
     }
 
+    /// Calculates the circulating supply
+    /// - At any given block height, the circulating supply is given by the sum of all black rewards up to, and including, that point
+    public func circulatingSupply() -> UInt64 {
+        let blockHeight = UInt64(blocks.count)
+        if blockHeight == 0 {
+            return 0
+        }
+        return (1...blockHeight)
+            .map { Coin.blockReward(at: $0-1) }
+            .reduce(0, +)
+    }
 }

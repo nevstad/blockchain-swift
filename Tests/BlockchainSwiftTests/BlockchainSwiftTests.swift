@@ -297,6 +297,22 @@ final class BlockchainSwiftTests: XCTestCase {
         XCTAssert(node5.mempool.count == 0)
     }
     
+    func testCirculatingSupply() {
+        let blockchain = Blockchain()
+        blockchain.pow = ProofOfWork(difficulty: 1)
+        let node = Node(address: NodeAddress.centralAddress(), blockchain: blockchain)
+        XCTAssert(node.blockchain.circulatingSupply() == 0)
+        (1...1_000).forEach { i in
+            let _ = node.mineBlock(minerAddress: Data())
+        }
+        let expectedCirculatingSupply =
+            node.blockchain.blocks
+                .map { $0.transactions.first! }
+                .map { $0.outputs.first!.value }
+                .reduce(0, +)
+        XCTAssert(expectedCirculatingSupply == node.blockchain.circulatingSupply())
+    }
+    
     static let allTests = [
         ("testKeyGenAndTxSigning", testKeyGenAndTxSigning),
         ("testKeyRestoreData", testKeyRestoreData),
