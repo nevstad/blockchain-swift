@@ -60,6 +60,10 @@ public class Node {
         case unverifiedTransaction
     }
     
+    deinit {
+        messageListener.stop()
+    }
+    
     /// Create a new Node
     /// - Parameter address: This Node's address
     /// - Parameter wallet: This Node's wallet, created if nil
@@ -69,13 +73,14 @@ public class Node {
         self.mempool = mempool ?? [Transaction]()
         
         // Handle outcoing connections
-        messageSender = NWConnectionMessageSender()
-        // Set up server to listen on incoming requests
+        messageSender = NIOMessageSender()
+        messageListener = NIOMessageListener(host: address.host, port: Int(address.port))
+        messageListener.delegate = self
+//        messageSender = NWConnectionMessageSender()
 //        messageListener = NWListenerMessageListener(port: UInt16(address.port)) { newState in
 //            print(newState)
 //        }
-        messageListener = NIOMessageListener(host: address.host, port: Int(address.port))
-        messageListener.delegate = self
+//        messageListener.delegate = self
 
         // All nodes must know of the central node, and connect to it (unless self is central node)
         if !self.address.isCentralNode {
@@ -302,7 +307,8 @@ extension Node: MessageListenerDelegate {
         var validBlocks = [Block]()
         for block in message.blocks {
             if block.previousHash != blockchain.lastBlockHash() {
-                os_log("\t- Received blocks where first block's previous hash doesn't match our latest block hash", type: .debug)
+                os_log("\t- Received block whose previous hash doesn't match our latest block hash", type: .debug)
+                continue
             }
             if blockchain.pow.validate(block: block, previousHash: blockchain.lastBlockHash()) {
                 blockchain.createBlock(nonce: block.nonce, hash: block.hash, previousHash: block.previousHash, timestamp: block.timestamp, transactions: block.transactions)

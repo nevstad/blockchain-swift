@@ -8,15 +8,6 @@
 import Foundation
 import os.log
 
-#if canImport(Network)
-import Network
-#endif
-
-#if canImport(NIO)
-import NIO
-#endif
-
-
 public protocol MessageListenerDelegate {
     func didReceiveVersionMessage(_ message: VersionMessage)
     func didReceiveGetTransactionsMessage(_ message: GetTransactionsMessage)
@@ -27,6 +18,8 @@ public protocol MessageListenerDelegate {
 
 protocol MessageListener {
     var delegate: MessageListenerDelegate? { get set }
+    func start()
+    func stop()
 }
 
 extension MessageListener {
@@ -69,15 +62,44 @@ extension MessageListener {
 
 
 #if canImport(NIO)
+import NIO
+
 public class NIOMessageListener: MessageListener {
+    private var host: String
+    private var port: Int
     private let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
-    private var host: String?
-    private var port: Int?
     private var messageHandler: MessageHandler
-    internal var delegate: MessageListenerDelegate? {
-        didSet {
-            messageHandler.delegate = delegate
+    internal var delegate: MessageListenerDelegate?
+    
+    init(host: String, port: Int) {
+        self.host = host
+        self.port = port
+        messageHandler = MessageHandler()
+        messageHandler.listener = self
+        
+        start()
+    }
+    
+    func start() {
+        DispatchQueue.global().async {
+            do {
+                let channel = try self.serverBootstrap.bind(host: self.host, port: self.port).wait()
+                print("\(channel.localAddress!) is now open")
+                try channel.closeFuture.wait()
+            } catch let error {
+                print(error)
+                return
+            }
         }
+    }
+    
+    func stop() {
+        do {
+            try group.syncShutdownGracefully()
+        } catch let error {
+            print("Could not shutdown gracefully - forcing exit (\(error.localizedDescription))")
+        }
+        print("Server closed")
     }
     
     final class MessageCodec: ByteToMessageDecoder {
@@ -98,15 +120,15 @@ public class NIOMessageListener: MessageListener {
         }
     }
 
-    final class MessageHandler: ChannelInboundHandler, MessageListener {
+    final class MessageHandler: ChannelInboundHandler {
         public typealias InboundIn = ByteBuffer
         public typealias OutboundOut = ByteBuffer
         
         // All access to channels is guarded by channelsSyncQueue.
         private let channelsSyncQueue = DispatchQueue(label: "messagesQueue")
         private var channels: [ObjectIdentifier: Channel] = [:]
-        var delegate: MessageListenerDelegate?
-        
+        var listener: MessageListener?
+
         public func channelActive(context: ChannelHandlerContext) {
             let remoteAddress = context.remoteAddress!
             print(remoteAddress)
@@ -132,7 +154,7 @@ public class NIOMessageListener: MessageListener {
                 messageData.append(byte)
             }
             if let message = try? Message.deserialize(messageData) {
-                handleMessage(message)
+                listener?.handleMessage(message)
             } else {
                 os_log("Could not deserialize message", type: .error)
             }
@@ -148,12 +170,10 @@ public class NIOMessageListener: MessageListener {
     }
     
     private var serverBootstrap: ServerBootstrap {
-        // 1
         return ServerBootstrap(group: group)
             // Specify backlog and enable SO_REUSEADDR for the server itself
             .serverChannelOption(ChannelOptions.backlog, value: 256)
             .serverChannelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
-            
             // Set the handlers that are applied to the accepted Channels
             .childChannelInitializer { channel in
                 // Add handler that will buffer data until a full Message can be decoded
@@ -162,42 +182,18 @@ public class NIOMessageListener: MessageListener {
                     channel.pipeline.addHandler(self.messageHandler)
                 }
             }
-            
             // Enable TCP_NODELAY and SO_REUSEADDR for the accepted Channels
             .childChannelOption(ChannelOptions.socket(IPPROTO_TCP, TCP_NODELAY), value: 1)
             .childChannelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
             .childChannelOption(ChannelOptions.maxMessagesPerRead, value: 16)
             .childChannelOption(ChannelOptions.recvAllocator, value: AdaptiveRecvByteBufferAllocator())
     }
-    
-    func run() {
-        guard let host = host else {
-            return
-        }
-        guard let port = port else {
-            return
-        }
-        DispatchQueue.global().async {
-            do {
-                let channel = try self.serverBootstrap.bind(host: host, port: port).wait()
-                print("\(channel.localAddress!) is now open")
-                try channel.closeFuture.wait()
-            } catch let error {
-                print(error)
-                return
-            }
-        }
-    }
-    
-    
-    init(host: String, port: Int) {
-        self.host = host
-        self.port = port
-        self.messageHandler = MessageHandler()
-        run()
-    }
 }
 #endif
+
+
+#if canImport(Network)
+import Network
 
 /// The MessageListener handles all incoming connections to a Node
 @available(iOS 12.0, macOS 10.14, *)
@@ -214,20 +210,31 @@ public class NWListenerMessageListener: MessageListener {
         listener.stateUpdateHandler = stateHandler
         listener.newConnectionHandler = { [weak self] newConnection in
             if let strongSelf = self {
-                newConnection.receive(minimumIncompleteLength: 1, maximumLength: 13371337) { (data, context, isComplete, error) in
-                    if let data = data, let message = try? Message.deserialize(data) {
-                        strongSelf.handleMessage(message)
-                    } else {
-                        os_log("Could not deserialize message", type: .error)
-                    }
-                }
-                newConnection.start(queue: strongSelf.queue)
-                self?.connections.append(newConnection)
-                os_log("New connection: %s", type: .info, newConnection.debugDescription)
+                strongSelf.handleConnection(newConnection)
             }
         }
+    }
+    
+    private func handleConnection(_ newConnection: NWConnection) {
+        newConnection.receive(minimumIncompleteLength: 1, maximumLength: 13371337) { [weak self] (data, context, isComplete, error) in
+            if let data = data, let message = try? Message.deserialize(data), let strongSelf = self {
+                strongSelf.handleMessage(message)
+            } else {
+                os_log("Could not deserialize message", type: .error)
+            }
+        }
+        newConnection.start(queue: queue)
+        connections.append(newConnection)
+        os_log("New connection: %s", type: .info, newConnection.debugDescription)
+    }
+    
+    func start() {
         listener.start(queue: queue)
     }
+    
+    func stop() {
+        listener.cancel()
+        connections.removeAll()
+    }
 }
-
-
+#endif

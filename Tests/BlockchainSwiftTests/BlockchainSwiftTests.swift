@@ -299,18 +299,17 @@ final class BlockchainSwiftTests: XCTestCase {
     
     func testCirculatingSupply() {
         let blockchain = Blockchain()
-        blockchain.pow = ProofOfWork(difficulty: 1)
-        let node = Node(address: NodeAddress.centralAddress(), blockchain: blockchain)
-        XCTAssert(node.blockchain.circulatingSupply() == 0)
-        (1...1_000).forEach { i in
-            let _ = node.mineBlock(minerAddress: Data())
+        XCTAssert(blockchain.circulatingSupply() == 0)
+        (1...1_000_000).forEach { i in
+            let block = Block(timestamp: 0, transactions: [Transaction.coinbase(address: Data(), blockValue: blockchain.currentBlockValue())], nonce: 0, hash: Data(), previousHash: Data())
+            blockchain.blocks.append(block)
         }
         let expectedCirculatingSupply =
-            node.blockchain.blocks
+            blockchain.blocks
                 .map { $0.transactions.first! }
                 .map { $0.outputs.first!.value }
                 .reduce(0, +)
-        XCTAssert(expectedCirculatingSupply == node.blockchain.circulatingSupply())
+        XCTAssert(expectedCirculatingSupply == blockchain.circulatingSupply())
     }
     
     static let allTests = [
@@ -321,7 +320,8 @@ final class BlockchainSwiftTests: XCTestCase {
         ("testKeyRestoreAndTxSigning", testKeyRestoreAndTxSigning),
         ("testWalletTxSigning", testWalletTxSigning),
         ("testTransactions", testTransactions),
-        ("testNodeNetwork", testNodeNetwork)
+        ("testNodeNetwork", testNodeNetwork),
+        ("testCirculatingSupply", testCirculatingSupply)
     ]
     
 }
