@@ -9,11 +9,11 @@ import Foundation
 import os.log
 
 public protocol MessageListenerDelegate {
-    func didReceiveVersionMessage(_ message: VersionMessage)
-    func didReceiveGetTransactionsMessage(_ message: GetTransactionsMessage)
-    func didReceiveTransactionsMessage(_ message: TransactionsMessage)
-    func didReceiveGetBlocksMessage(_ message: GetBlocksMessage)
-    func didReceiveBlocksMessage(_ message: BlocksMessage)
+    func didReceiveVersionMessage(_ message: VersionMessage, from: String)
+    func didReceiveGetTransactionsMessage(_ message: GetTransactionsMessage, from: String)
+    func didReceiveTransactionsMessage(_ message: TransactionsMessage, from: String)
+    func didReceiveGetBlocksMessage(_ message: GetBlocksMessage, from: String)
+    func didReceiveBlocksMessage(_ message: BlocksMessage, from: String)
 }
 
 protocol MessageListener {
@@ -23,34 +23,34 @@ protocol MessageListener {
 }
 
 extension MessageListener {
-    func handleMessage(_ message: Message) {
+    func handleMessage(_ message: Message, from: String) {
         if message.command == .version {
             if let versionMessage = try? VersionMessage.deserialize(message.payload) {
-                delegate?.didReceiveVersionMessage(versionMessage)
+                delegate?.didReceiveVersionMessage(versionMessage, from: from)
             } else {
                 os_log("Received malformed %s message", type: .error, message.command.description)
             }
         } else if message.command == .getTransactions {
             if let getTransactionsMessage = try? GetTransactionsMessage.deserialize(message.payload) {
-                delegate?.didReceiveGetTransactionsMessage(getTransactionsMessage)
+                delegate?.didReceiveGetTransactionsMessage(getTransactionsMessage, from: from)
             } else {
                 os_log("Received malformed %s message", type: .error, message.command.description)
             }
         } else if message.command == .transactions {
             if let transactionsMessage = try? TransactionsMessage.deserialize(message.payload) {
-                delegate?.didReceiveTransactionsMessage(transactionsMessage)
+                delegate?.didReceiveTransactionsMessage(transactionsMessage, from: from)
             } else {
                 os_log("Received malformed %s message", type: .error, message.command.description)
             }
         } else if message.command == .getBlocks {
             if let getBlocksMessage = try? GetBlocksMessage.deserialize(message.payload) {
-                delegate?.didReceiveGetBlocksMessage(getBlocksMessage)
+                delegate?.didReceiveGetBlocksMessage(getBlocksMessage, from: from)
             } else {
                 os_log("Received malformed %s message", type: .error, message.command.description)
             }
         } else if message.command == .blocks {
             if let blocksMessage = try? BlocksMessage.deserialize(message.payload) {
-                delegate?.didReceiveBlocksMessage(blocksMessage)
+                delegate?.didReceiveBlocksMessage(blocksMessage, from: from)
             } else {
                 os_log("Received malformed %s message", type: .error, message.command.description)
             }
@@ -60,6 +60,83 @@ extension MessageListener {
     }
 }
 
+#if canImport(Network)
+import Network
+
+/// The MessageListener handles all incoming connections to a Node
+@available(iOS 12.0, macOS 10.14, *)
+public class NWListenerMessageListener: MessageListener {
+    public var listener: NWListener?
+    public let queue: DispatchQueue
+    public var connections = [NWConnection]()
+    
+    var delegate: MessageListenerDelegate?
+    
+    init() {
+        queue = DispatchQueue(label: "Node Server Queue")
+        start()
+    }
+    
+    private func handleConnection(_ newConnection: NWConnection) {
+        newConnection.receive(minimumIncompleteLength: 1, maximumLength: 13371337) { [weak self] (data, context, isComplete, error) in
+            if let data = data, let message = try? Message.deserialize(data), let strongSelf = self {
+                strongSelf.handleMessage(message, from: newConnection.endpoint.asNodeAddress()!)
+            } else {
+                os_log("Could not deserialize message", type: .error)
+            }
+        }
+        newConnection.start(queue: queue)
+        connections.append(newConnection)
+        os_log("New connection: %s", type: .info, newConnection.debugDescription)
+    }
+    
+    func start() {
+        listener = nil
+        listener = try! NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: UInt16(nodePort))!)
+        listener?.stateUpdateHandler = { newState in
+            if case .ready = newState {
+                os_log("Listener is now open", type: .info)
+            }
+        }
+        listener?.newConnectionHandler = { [weak self] newConnection in
+            if let strongSelf = self {
+                strongSelf.handleConnection(newConnection)
+            }
+        }
+        listener?.start(queue: queue)
+    }
+    
+    func stop() {
+        listener?.cancel()
+        connections.removeAll()
+    }
+}
+
+extension NWEndpoint {
+    func asNodeAddress() -> String? {
+        if case .hostPort(let host, _) = self {
+            switch host {
+            case .ipv4(let addr):
+                var bytes: [UInt8] = []
+                addr.rawValue.forEach { bytes.append($0) }
+                return bytes.map { String($0) }.joined(separator: ".")
+            case .ipv6(let addr):
+                if let ipv4addr = addr.asIPv4 {
+                    var bytes: [UInt8] = []
+                    ipv4addr.rawValue.forEach { bytes.append($0) }
+                    return bytes.map { String($0) }.joined(separator: ".")
+                } else {
+                    return nil
+                }
+            default:
+                return nil
+            }
+        } else {
+            return nil
+        }
+    }
+}
+#endif
 
 #if canImport(NIO)
 import NIO
@@ -84,7 +161,7 @@ public class NIOMessageListener: MessageListener {
         DispatchQueue.global().async {
             do {
                 let channel = try self.serverBootstrap.bind(host: self.host, port: self.port).wait()
-                print("\(channel.localAddress!) is now open")
+                os_log("%s is now open", type: .info, channel.localAddress!.description)
                 try channel.closeFuture.wait()
             } catch let error {
                 print(error)
@@ -119,7 +196,7 @@ public class NIOMessageListener: MessageListener {
             return try self.decode(context: context, buffer: &buffer)
         }
     }
-
+    
     final class MessageHandler: ChannelInboundHandler {
         public typealias InboundIn = ByteBuffer
         public typealias OutboundOut = ByteBuffer
@@ -128,10 +205,8 @@ public class NIOMessageListener: MessageListener {
         private let channelsSyncQueue = DispatchQueue(label: "messagesQueue")
         private var channels: [ObjectIdentifier: Channel] = [:]
         var listener: MessageListener?
-
+        
         public func channelActive(context: ChannelHandlerContext) {
-            let remoteAddress = context.remoteAddress!
-            print(remoteAddress)
             let channel = context.channel
             self.channelsSyncQueue.async {
                 self.channels[ObjectIdentifier(channel)] = channel
@@ -147,21 +222,21 @@ public class NIOMessageListener: MessageListener {
         }
         
         public func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-//            let id = ObjectIdentifier(context.channel)
+            //            let id = ObjectIdentifier(context.channel)
             var read = self.unwrapInboundIn(data)
             var messageData = Data()
             while let byte: UInt8 = read.readInteger() {
                 messageData.append(byte)
             }
             if let message = try? Message.deserialize(messageData) {
-                listener?.handleMessage(message)
+                listener?.handleMessage(message, from: context.remoteAddress!.asNodeAddress()!)
             } else {
                 os_log("Could not deserialize message", type: .error)
             }
         }
         
         public func errorCaught(context: ChannelHandlerContext, error: Error) {
-            print("error: ", error)
+            os_log("Error: %s", type: .error, error.localizedDescription)
             
             // As we are not really interested getting notified on success or failure we just pass nil as promise to
             // reduce allocations.
@@ -176,7 +251,7 @@ public class NIOMessageListener: MessageListener {
             .serverChannelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
             // Set the handlers that are applied to the accepted Channels
             .childChannelInitializer { channel in
-                // Add handler that will buffer data until a full Message can be decoded
+                   // Add handler that will buffer data until a full Message can be decoded
                 channel.pipeline.addHandler(ByteToMessageHandler(MessageCodec())).flatMap { v in
                     // It's important we use the same handler for all accepted channels. The MessageHandler is thread-safe!
                     channel.pipeline.addHandler(self.messageHandler)
@@ -189,52 +264,17 @@ public class NIOMessageListener: MessageListener {
             .childChannelOption(ChannelOptions.recvAllocator, value: AdaptiveRecvByteBufferAllocator())
     }
 }
-#endif
 
-
-#if canImport(Network)
-import Network
-
-/// The MessageListener handles all incoming connections to a Node
-@available(iOS 12.0, macOS 10.14, *)
-public class NWListenerMessageListener: MessageListener {
-    public let listener: NWListener
-    public let queue: DispatchQueue
-    public var connections = [NWConnection]()
-    
-    var delegate: MessageListenerDelegate?
-    
-    init(port: UInt16, stateHandler: ((NWListener.State) -> Void)? = nil) {
-        self.queue = DispatchQueue(label: "Node Server Queue")
-        self.listener = try! NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: port)!)
-        listener.stateUpdateHandler = stateHandler
-        listener.newConnectionHandler = { [weak self] newConnection in
-            if let strongSelf = self {
-                strongSelf.handleConnection(newConnection)
-            }
+extension SocketAddress {
+    func asNodeAddress() -> String? {
+        switch self {
+        case .v4(let addr):
+            return addr.host
+        case .v6(let addr):
+            return addr.host
+        default:
+            return nil
         }
-    }
-    
-    private func handleConnection(_ newConnection: NWConnection) {
-        newConnection.receive(minimumIncompleteLength: 1, maximumLength: 13371337) { [weak self] (data, context, isComplete, error) in
-            if let data = data, let message = try? Message.deserialize(data), let strongSelf = self {
-                strongSelf.handleMessage(message)
-            } else {
-                os_log("Could not deserialize message", type: .error)
-            }
-        }
-        newConnection.start(queue: queue)
-        connections.append(newConnection)
-        os_log("New connection: %s", type: .info, newConnection.debugDescription)
-    }
-    
-    func start() {
-        listener.start(queue: queue)
-    }
-    
-    func stop() {
-        listener.cancel()
-        connections.removeAll()
     }
 }
 #endif

@@ -37,7 +37,6 @@ public struct Message: Serializable, Deserializable, Codable {
 public struct VersionMessage: Serializable, Deserializable, Codable {
     public let version: Int
     public let blockHeight: Int
-    public let fromAddress: NodeAddress
 
     public func serialized() -> Data {
         return try! JSONEncoder().encode(self)
@@ -50,8 +49,6 @@ public struct VersionMessage: Serializable, Deserializable, Codable {
 
 /// The GetBlocksMessage object will request Transactions
 public struct GetTransactionsMessage: Serializable, Deserializable, Codable {
-    public let fromAddress: NodeAddress
-    
     public func serialized() -> Data {
         return try! JSONEncoder().encode(self)
     }
@@ -64,7 +61,6 @@ public struct GetTransactionsMessage: Serializable, Deserializable, Codable {
 /// The transactions message contains new transations
 public struct TransactionsMessage: Serializable, Deserializable, Codable {
     public let transactions: [Transaction]
-    public let fromAddress: NodeAddress
 
     public func serialized() -> Data {
         return try! JSONEncoder().encode(self)
@@ -78,7 +74,6 @@ public struct TransactionsMessage: Serializable, Deserializable, Codable {
 /// The GetBlocksMessage object will request Blocks
 public struct GetBlocksMessage: Serializable, Deserializable, Codable {
     public let fromBlockHash: Data
-    public let fromAddress: NodeAddress
 
     public func serialized() -> Data {
         return try! JSONEncoder().encode(self)
@@ -92,7 +87,6 @@ public struct GetBlocksMessage: Serializable, Deserializable, Codable {
 /// The BlocksMessage contains transferred Blocks
 public struct BlocksMessage: Serializable, Deserializable, Codable {
     public let blocks: [Block]
-    public let fromAddress: NodeAddress
 
     public func serialized() -> Data {
         return try! JSONEncoder().encode(self)

@@ -7,6 +7,9 @@
 
 import Foundation
 
+let nodePort = 1337
+let centralNodeAddress = "central.lucidity.network"
+/*
 public struct NodeAddress: Codable {
     public let host: String
     public let port: UInt32
@@ -32,7 +35,7 @@ extension NodeAddress: Equatable {
 extension NodeAddress {
     // For simplicity's sake we hard code the central node address
     public static func centralAddress() -> NodeAddress {
-        return NodeAddress(host: "localhost", port: 8080)
+        return NodeAddress(host: "central.lucidity.network", port: 8080)
     }
     
     public var isCentralNode: Bool {
@@ -41,3 +44,4 @@ extension NodeAddress {
         }
     }
 }
+*/

@@ -9,7 +9,7 @@ import Foundation
 import os.log
 
 protocol NodeDelegate {
-    func node(_ node: Node, didAddPeer: NodeAddress)
+    func node(_ node: Node, didAddPeer: String)
     func node(_ node: Node, didCreateTransactions transactions: [Transaction])
     func node(_ node: Node, didSendTransactions transactions: [Transaction])
     func node(_ node: Node, didReceiveTransactions transactions: [Transaction])
@@ -23,16 +23,18 @@ protocol NodeDelegate {
 /// - Miner: Stores new transactions in a mempool, and will put them into blocks once mined. Needs to store the entire chainstate.
 /// - Wallet: Sends coins between wallets, and (unlike Bitcoins optimized SPV nodes) needs to store the entire chainstate.
 public class Node {
+    public enum NodeType {
+        case central
+        case peer
+    }
+    public let type: NodeType
     
     /// Version lets us make sure all nodes run the same version of the blockchain
     public let version: Int = 1
     
-    /// Our address in the Node network
-    public let address: NodeAddress
-    
     /// Our network of nodes
-    public var knownNodes = [NodeAddress]()
-    public func knownNodes(except: [NodeAddress]) -> [NodeAddress] {
+    public var knownNodes = [String]()
+    public func knownNodes(except: [String]) -> [String] {
         var nodes = knownNodes
         except.forEach { exception in
             nodes.removeAll(where: { $0 == exception })
@@ -67,30 +69,36 @@ public class Node {
     /// Create a new Node
     /// - Parameter address: This Node's address
     /// - Parameter wallet: This Node's wallet, created if nil
-    init(address: NodeAddress, blockchain: Blockchain? = nil, mempool: [Transaction]? = nil) {
-        self.address = address
+    init(type: NodeType = .peer, blockchain: Blockchain? = nil, mempool: [Transaction]? = nil) {
+        self.type = type
         self.blockchain = blockchain ?? Blockchain()
         self.mempool = mempool ?? [Transaction]()
         
         // Handle outcoing connections
-        messageSender = NIOMessageSender()
-        messageListener = NIOMessageListener(host: address.host, port: Int(address.port))
-        messageListener.delegate = self
-//        messageSender = NWConnectionMessageSender()
-//        messageListener = NWListenerMessageListener(port: UInt16(address.port)) { newState in
-//            print(newState)
-//        }
+//        messageSender = NIOMessageSender()
+//        messageListener = NIOMessageListener(host: "localhost", port: nodePort) // hmm
 //        messageListener.delegate = self
+        messageSender = NWConnectionMessageSender()
+        messageListener = NWListenerMessageListener()
+        messageListener.delegate = self
 
+        connect()
+    }
+    
+    // Connect to the Node network by sending Version to central
+    public func connect() {
+        messageListener.start()
         // All nodes must know of the central node, and connect to it (unless self is central node)
-        if !self.address.isCentralNode {
-            let firstNodeAddr = NodeAddress.centralAddress()
-            knownNodes.append(firstNodeAddr)
-            delegate?.node(self, didAddPeer: firstNodeAddr)
-
-            let versionMessage = VersionMessage(version: 1, blockHeight: self.blockchain.blocks.count, fromAddress: self.address)
-            messageSender.sendVersionMessage(versionMessage, to: firstNodeAddr)
+        if case .peer = type {
+            let versionMessage = VersionMessage(version: 1, blockHeight: self.blockchain.blocks.count)
+            messageSender.sendVersionMessage(versionMessage, to: centralNodeAddress)
         }
+    }
+    
+    // Disconnect from the Node network
+    public func disconnect() {
+        // TODO: we should ideally let the network know we're down, or have pruning regularly over time of inactive peers
+        messageListener.stop()
     }
     
     /// Create a transaction, sending coins
@@ -157,8 +165,8 @@ public class Node {
         delegate?.node(self, didCreateTransactions: [transaction])
 
         // Broadcast new transaction to network
-        for node in knownNodes(except: [address]) {
-            messageSender.sendTransactionsMessage(TransactionsMessage(transactions: [transaction], fromAddress: address), to: node)
+        for node in knownNodes {
+            messageSender.sendTransactionsMessage(TransactionsMessage(transactions: [transaction]), to: node)
             delegate?.node(self, didSendTransactions: [transaction])
         }
         
@@ -193,8 +201,8 @@ public class Node {
         delegate?.node(self, didCreateBlocks: [block])
 
         // Notify nodes about new block
-        for node in knownNodes(except: [address]) {
-            messageSender.sendBlocksMessage(BlocksMessage(blocks: [block], fromAddress: address), to: node)
+        for node in knownNodes {
+            messageSender.sendBlocksMessage(BlocksMessage(blocks: [block]), to: node)
             delegate?.node(self, didSendBlocks: [block])
         }
         
@@ -204,49 +212,47 @@ public class Node {
 
 /// Handle incoming messages from the Node Network
 extension Node: MessageListenerDelegate {
-    public func didReceiveVersionMessage(_ message: VersionMessage) {
-        let localVersion = VersionMessage(version: 1, blockHeight: blockchain.blocks.count, fromAddress: address)
+    public func didReceiveVersionMessage(_ message: VersionMessage, from: String) {
+        let localVersion = VersionMessage(version: 1, blockHeight: blockchain.blocks.count)
         
         // Ignore nodes running a different blockchain protocol version
         guard message.version == localVersion.version else {
-            os_log("* Node %s received invalid Version from %s (%d)", type: .info, address.urlString, message.fromAddress.urlString, message.version)
+            os_log("* Node received invalid Version from %s (%d)", type: .info, from, message.version)
             return
         }
-        os_log("* Node %s received version from %s", type: .info, address.urlString, message.fromAddress.urlString)
+        os_log("* Node received version from %s", type: .info, from)
         
         // If we (as central node) have a new node, add it to our peers
-        if address.isCentralNode {
-            if !knownNodes.contains(message.fromAddress) {
-                knownNodes.append(message.fromAddress)
-                delegate?.node(self, didAddPeer: message.fromAddress)
-            }
+        if !knownNodes.contains(from) {
+            knownNodes.append(from)
+            delegate?.node(self, didAddPeer: from)
         }
-        os_log("\t\t- Known peers:\n%s", type: .info, knownNodes.map { $0.urlString }.joined(separator: ","))
+        os_log("\t\t- Known peers:\n%s", type: .info, knownNodes.joined(separator: ","))
         
         // If the remote peer has a longer chain, request it's blocks starting from our latest block
         // Otherwise, if the remote peer has a shorter chain, respond with our version
         if localVersion.blockHeight < message.blockHeight  {
             os_log("\t\t- Remote node has longer chain, requesting blocks and transactions", type: .info)
-            let getBlocksMessage = GetBlocksMessage(fromBlockHash: blockchain.lastBlockHash(), fromAddress: address)
-            let getTransactionsMessage = GetTransactionsMessage(fromAddress: address)
-            messageSender.sendGetBlocksMessage(getBlocksMessage, to: message.fromAddress)
-            messageSender.sendGetTransactionsMessage(getTransactionsMessage, to: message.fromAddress)
+            let getBlocksMessage = GetBlocksMessage(fromBlockHash: blockchain.lastBlockHash())
+            let getTransactionsMessage = GetTransactionsMessage()
+            messageSender.sendGetBlocksMessage(getBlocksMessage, to: from)
+            messageSender.sendGetTransactionsMessage(getTransactionsMessage, to: from)
         } else if localVersion.blockHeight > message.blockHeight {
             os_log("\t\t- Remote node has shorter chain, sending version", type: .info)
-            messageSender.sendVersionMessage(localVersion, to: message.fromAddress)
+            messageSender.sendVersionMessage(localVersion, to: from)
         }
     }
     
-    public func didReceiveGetTransactionsMessage(_ message: GetTransactionsMessage) {
-        os_log("* Node %s received getTransactions from %s", type: .info, address.urlString, message.fromAddress.urlString)
-        let transactionsMessage = TransactionsMessage(transactions: mempool, fromAddress: address)
+    public func didReceiveGetTransactionsMessage(_ message: GetTransactionsMessage, from: String) {
+        os_log("* Node received getTransactions from %s", type: .info, from)
+        let transactionsMessage = TransactionsMessage(transactions: mempool)
         os_log("\t - Sending transactions message", type: .info)
-        messageSender.sendTransactionsMessage(transactionsMessage, to: message.fromAddress)
+        messageSender.sendTransactionsMessage(transactionsMessage, to: from)
         delegate?.node(self, didSendTransactions: mempool)
     }
     
-    public func didReceiveTransactionsMessage(_ message: TransactionsMessage) {
-        os_log("* Node %s received transactions from %s", type: .info, address.urlString, message.fromAddress.urlString)
+    public func didReceiveTransactionsMessage(_ message: TransactionsMessage, from: String) {
+        os_log("* Node received transactions from %s", type: .info, from)
 
         var verifiedTransactions = [Transaction]()
         // Verify and add transactions to blockchain
@@ -278,23 +284,23 @@ extension Node: MessageListenerDelegate {
         delegate?.node(self, didReceiveTransactions: verifiedTransactions)
         
         // Central node is responsible for distributing the new transactions (nodes will handle verification internally)
-        if address.isCentralNode {
-            for node in knownNodes(except: [address, message.fromAddress])  {
+        if case .central = type {
+            for node in knownNodes  {
                 messageSender.sendTransactionsMessage(message, to: node)
             }
         }
     }
     
-    public func didReceiveGetBlocksMessage(_ message: GetBlocksMessage) {
-        os_log("* Node %s received .getBlocks from %s", type: .info, address.urlString, message.fromAddress.urlString)
+    public func didReceiveGetBlocksMessage(_ message: GetBlocksMessage, from: String) {
+        os_log("* Node received .getBlocks from %s", type: .info, from)
         if message.fromBlockHash.isEmpty {
-            messageSender.sendBlocksMessage(BlocksMessage(blocks: blockchain.blocks, fromAddress: address), to: message.fromAddress)
+            messageSender.sendBlocksMessage(BlocksMessage(blocks: blockchain.blocks), to: from)
             delegate?.node(self, didSendBlocks: blockchain.blocks)
         } else if let fromHashIndex = blockchain.blocks.firstIndex(where: { $0.hash == message.fromBlockHash }) {
             let requestedBlocks = Array<Block>(blockchain.blocks[fromHashIndex...])
-            let blocksMessage = BlocksMessage(blocks: requestedBlocks, fromAddress: address)
+            let blocksMessage = BlocksMessage(blocks: requestedBlocks)
             os_log("\t - Sending blocks message with %d blocks", type: .info, blocksMessage.blocks.count)
-            messageSender.sendBlocksMessage(blocksMessage, to: message.fromAddress)
+            messageSender.sendBlocksMessage(blocksMessage, to: from)
             delegate?.node(self, didSendBlocks: requestedBlocks)
         } else {
             os_log("\t - Unable to satisfy fromBlockHash=%s", type: .debug, message.fromBlockHash.hex)
@@ -302,8 +308,8 @@ extension Node: MessageListenerDelegate {
 
     }
 
-    public func didReceiveBlocksMessage(_ message: BlocksMessage) {
-        os_log("* Node %s received .blocks from %s", type: .info, address.urlString, message.fromAddress.urlString)
+    public func didReceiveBlocksMessage(_ message: BlocksMessage, from: String) {
+        os_log("* Node received .blocks from %s", type: .info, from)
         var validBlocks = [Block]()
         for block in message.blocks {
             if block.previousHash != blockchain.lastBlockHash() {
@@ -325,9 +331,11 @@ extension Node: MessageListenerDelegate {
         delegate?.node(self, didReceiveBlocks: validBlocks)
 
         // Central node is responsible for distributing the new transactions (nodes will handle verification internally)
-        if address.isCentralNode && !validBlocks.isEmpty {
-            for node in knownNodes(except: [address, message.fromAddress])  {
-                messageSender.sendBlocksMessage(message, to: node)
+        if case .central = type {
+            if !validBlocks.isEmpty {
+                for node in knownNodes  {
+                    messageSender.sendBlocksMessage(message, to: node)
+                }
             }
         }
     }

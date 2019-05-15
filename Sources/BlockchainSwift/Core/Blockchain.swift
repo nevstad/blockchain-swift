@@ -32,7 +32,7 @@ public class Blockchain: Codable {
     }
     
     /// The blockchain
-    public private(set) var blocks: [Block] = []
+    public var blocks: [Block] = []
     
     /// Proof of Work Algorithm
     public var pow = ProofOfWork(difficulty: 3)
