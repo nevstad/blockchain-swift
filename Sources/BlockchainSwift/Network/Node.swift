@@ -69,7 +69,7 @@ public class Node {
     /// Create a new Node
     /// - Parameter address: This Node's address
     /// - Parameter wallet: This Node's wallet, created if nil
-    init(type: NodeType = .peer, blockchain: Blockchain? = nil, mempool: [Transaction]? = nil) {
+    public init(type: NodeType = .peer, blockchain: Blockchain? = nil, mempool: [Transaction]? = nil) {
         self.type = type
         self.blockchain = blockchain ?? Blockchain()
         self.mempool = mempool ?? [Transaction]()
