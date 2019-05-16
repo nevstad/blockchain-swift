@@ -23,7 +23,7 @@ protocol NodeDelegate {
 /// - Miner: Stores new transactions in a mempool, and will put them into blocks once mined. Needs to store the entire chainstate.
 /// - Wallet: Sends coins between wallets, and (unlike Bitcoins optimized SPV nodes) needs to store the entire chainstate.
 public class Node {
-    public enum NodeType {
+    public enum NodeType: String {
         case central
         case peer
     }
