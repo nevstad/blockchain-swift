@@ -9,11 +9,11 @@ import Foundation
 import os.log
 
 public protocol MessageListenerDelegate {
-    func didReceiveVersionMessage(_ message: VersionMessage, from: String)
-    func didReceiveGetTransactionsMessage(_ message: GetTransactionsMessage, from: String)
-    func didReceiveTransactionsMessage(_ message: TransactionsMessage, from: String)
-    func didReceiveGetBlocksMessage(_ message: GetBlocksMessage, from: String)
-    func didReceiveBlocksMessage(_ message: BlocksMessage, from: String)
+    func didReceiveVersionMessage(_ message: VersionMessage, from: NodeAddress)
+    func didReceiveGetTransactionsMessage(_ message: GetTransactionsMessage, from: NodeAddress)
+    func didReceiveTransactionsMessage(_ message: TransactionsMessage, from: NodeAddress)
+    func didReceiveGetBlocksMessage(_ message: GetBlocksMessage, from: NodeAddress)
+    func didReceiveBlocksMessage(_ message: BlocksMessage, from: NodeAddress)
 }
 
 protocol MessageListener {
@@ -23,7 +23,7 @@ protocol MessageListener {
 }
 
 extension MessageListener {
-    func handleMessage(_ message: Message, from: String) {
+    func handleMessage(_ message: Message, from: NodeAddress) {
         if message.command == .version {
             if let versionMessage = try? VersionMessage.deserialize(message.payload) {
                 delegate?.didReceiveVersionMessage(versionMessage, from: from)
@@ -69,18 +69,19 @@ public class NWListenerMessageListener: MessageListener {
     public var listener: NWListener?
     public let queue: DispatchQueue
     public var connections = [NWConnection]()
+    private var port: UInt32
     
     var delegate: MessageListenerDelegate?
     
-    init() {
+    init(port: UInt32) {
+        self.port = port
         queue = DispatchQueue(label: "Node Server Queue")
-        start()
     }
     
     private func handleConnection(_ newConnection: NWConnection) {
         newConnection.receive(minimumIncompleteLength: 1, maximumLength: 13371337) { [weak self] (data, context, isComplete, error) in
             if let data = data, let message = try? Message.deserialize(data), let strongSelf = self {
-                strongSelf.handleMessage(message, from: newConnection.endpoint.asNodeAddress()!)
+                strongSelf.handleMessage(message, from: NodeAddress(host: newConnection.endpoint.host!, port: message.fromPort))
             } else {
                 os_log("Could not deserialize message", type: .error)
             }
@@ -92,7 +93,7 @@ public class NWListenerMessageListener: MessageListener {
     
     func start() {
         listener = nil
-        listener = try! NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: UInt16(nodePort))!)
+        listener = try! NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: UInt16(port))!)
         listener?.stateUpdateHandler = { newState in
             if case .ready = newState {
                 os_log("Listener is now open", type: .info)
@@ -113,7 +114,7 @@ public class NWListenerMessageListener: MessageListener {
 }
 
 extension NWEndpoint {
-    func asNodeAddress() -> String? {
+    var host: String? {
         if case .hostPort(let host, _) = self {
             switch host {
             case .ipv4(let addr):
@@ -229,7 +230,9 @@ public class NIOMessageListener: MessageListener {
                 messageData.append(byte)
             }
             if let message = try? Message.deserialize(messageData) {
-                listener?.handleMessage(message, from: context.remoteAddress!.asNodeAddress()!)
+                if let listener = listener {
+                    listener.handleMessage(message, from: NodeAddress(host: context.remoteAddress!.host!, port: message.fromPort))
+                }
             } else {
                 os_log("Could not deserialize message", type: .error)
             }
@@ -266,7 +269,7 @@ public class NIOMessageListener: MessageListener {
 }
 
 extension SocketAddress {
-    func asNodeAddress() -> String? {
+    var host: String? {
         switch self {
         case .v4(let addr):
             return addr.host

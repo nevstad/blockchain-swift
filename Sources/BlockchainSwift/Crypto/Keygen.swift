@@ -79,7 +79,7 @@ public final class Keygen {
     
     /// Fetches an existing Wallet key-pair from the keychain, if it exists
     /// - Parameter name: The name of the wallet
-    static func loadKeyPairFromKeychain(name: String) -> KeyPair? {
+    public static func loadKeyPairFromKeychain(name: String) -> KeyPair? {
         let getQuery: [String: Any] = [
             kSecClass as String: kSecClassKey,
             kSecAttrApplicationTag as String: keychainAppTag,

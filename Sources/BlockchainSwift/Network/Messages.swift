@@ -23,6 +23,7 @@ public struct Message: Serializable, Deserializable, Codable {
     
     public let command: Command
     public let payload: Data
+    public let fromPort: UInt32
     
     public func serialized() -> Data {
         return try! JSONEncoder().encode(self)
