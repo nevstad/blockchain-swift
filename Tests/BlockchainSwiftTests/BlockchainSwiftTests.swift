@@ -198,10 +198,16 @@ final class BlockchainSwiftTests: XCTestCase {
         let initialSync = XCTestExpectation(description: "Initial sync")
         let node1Wallet = Wallet(name: "Node1Wallet")!
         let node1 = Node(type: .central)
+        node1.connect()
+        defer { node1.disconnect() }
         let _ = node1.mineBlock(minerAddress: node1Wallet.address)
         let node2Wallet = Wallet(name: "Node2Wallet")!
         let node2 = Node(type: .peer)
+        node2.connect()
+        defer { node2.disconnect() }
         let node3 = Node(type: .peer)
+        node3.connect()
+        defer { node3.disconnect() }
         DispatchQueue.global().async {
             while true {
                 if node2.blockchain.blocks.count == 1 && node3.blockchain.blocks.count == 1 {
@@ -237,6 +243,8 @@ final class BlockchainSwiftTests: XCTestCase {
         
         let newNodeTxSync = XCTestExpectation(description: "Sync new node")
         let node4 = Node(type: .peer)
+        node4.connect()
+        defer { node4.disconnect() }
         DispatchQueue.global().async {
             while true {
                 let requirements = [
@@ -330,4 +338,10 @@ final class BlockchainSwiftTests: XCTestCase {
         ("testCirculatingSupply", testCirculatingSupply)
     ]
     
+}
+
+private extension NodeAddress {
+    public static func centralAddress() -> NodeAddress {
+        return NodeAddress(host: "127.0.0.1", port: 1337)
+    }
 }
