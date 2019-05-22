@@ -33,9 +33,6 @@ public class Node {
     /// Version lets us make sure all nodes run the same version of the blockchain
     public let version: Int = 1
     
-    /// Our network of nodes
-    public var knownNodes = [NodeAddress]()
-    
     /// Local copy of the blockchain
     public let blockchain: Blockchain
     
@@ -43,8 +40,9 @@ public class Node {
     public var mempool: [Transaction]
     
     /// Node network
-    var messageListener: MessageListener
-    let messageSender: MessageSender
+    public var peers = [NodeAddress]()
+    private var messageListener: MessageListener
+    private let messageSender: MessageSender
     
     public var delegate: NodeDelegate?
     
@@ -87,14 +85,17 @@ public class Node {
         messageListener = NWListenerMessageListener(port: port)
         messageListener.delegate = self
         #endif
+
+        if type == .peer {
+            peers.append(NodeAddress.centralAddress())
+        }
     }
     
     // Connect to the Node network by sending Version to central
     public func connect() {
         messageListener.start()
         // All nodes must know of the central node, and connect to it (unless self is central node)
-        if case .peer = type {
-            knownNodes.append(NodeAddress.centralAddress())
+        if type == .peer {
             let versionMessage = VersionMessage(version: 1, blockHeight: self.blockchain.blocks.count)
             messageSender.sendVersionMessage(versionMessage, to: NodeAddress.centralAddress())
         } else {
@@ -172,7 +173,7 @@ public class Node {
         delegate?.node(self, didCreateTransactions: [transaction])
         
         // Broadcast new transaction to network
-        for node in knownNodes {
+        for node in peers {
             messageSender.sendTransactionsMessage(TransactionsMessage(transactions: [transaction]), to: node)
             delegate?.node(self, didSendTransactions: [transaction])
         }
@@ -208,7 +209,7 @@ public class Node {
         delegate?.node(self, didCreateBlocks: [block])
         
         // Notify nodes about new block
-        for node in knownNodes {
+        for node in peers {
             messageSender.sendBlocksMessage(BlocksMessage(blocks: [block]), to: node)
             delegate?.node(self, didSendBlocks: [block])
         }
@@ -240,7 +241,7 @@ extension Node: MessageListenerDelegate {
         } else if localVersion.blockHeight > message.blockHeight {
             os_log("\t\t- Remote node has shorter chain, sending version", type: .info)
             messageSender.sendVersionMessage(localVersion, to: from)
-        } else if !knownNodes.contains(from) {
+        } else if !peers.contains(from) {
             messageSender.sendVersionMessage(localVersion, to: from)
         }
         
@@ -250,12 +251,12 @@ extension Node: MessageListenerDelegate {
         }
         
         if type == .central {
-            if !knownNodes.contains(from) {
-                knownNodes.append(from)
+            if !peers.contains(from) {
+                peers.append(from)
                 delegate?.node(self, didAddPeer: from)
             }
         }
-        os_log("\t\t- Known peers:\n%s", type: .info, knownNodes.map{ $0.urlString }.joined(separator: ", "))
+        os_log("\t\t- Known peers:\n%s", type: .info, peers.map{ $0.urlString }.joined(separator: ", "))
         
     }
     
@@ -301,7 +302,7 @@ extension Node: MessageListenerDelegate {
         
         // Central node is responsible for distributing the new transactions (nodes will handle verification internally)
         if type == .central {
-            for node in knownNodes.filter({ $0 != from })  {
+            for node in peers.filter({ $0 != from })  {
                 messageSender.sendTransactionsMessage(message, to: node)
             }
         }
@@ -350,7 +351,7 @@ extension Node: MessageListenerDelegate {
         // Central node is responsible for distributing the new blocks (nodes will handle verification internally)
         if case .central = type {
             if !validBlocks.isEmpty {
-                for node in knownNodes.filter({ $0 != from })  {
+                for node in peers.filter({ $0 != from })  {
                     messageSender.sendBlocksMessage(message, to: node)
                 }
             }
