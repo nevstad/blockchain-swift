@@ -12,7 +12,8 @@ public typealias KeyPair = (privateKey: SecKey, publicKey: SecKey)
 
 public final class Keygen {
     private static let keychainLabelPrefix = "BlockchainSwift Wallet: "
-    private static let keychainAppTag = "BlockchainSwift".data(using: .utf8)!
+    private static let keychainAppTagPublic = "BlockchainSwift Public Key".data(using: .utf8)!
+    private static let keychainAppTagPrivate = "BlockchainSwift Private Key".data(using: .utf8)!
     
     /// Attempts to generate a random ECDSA key-pair
     public static func generateKeyPair(name: String, storeInKeychain: Bool = false) -> KeyPair? {
@@ -24,13 +25,14 @@ public final class Keygen {
                 kSecAttrKeyType as String: kSecAttrKeyTypeEC,
                 kSecAttrKeySizeInBits as String: 256,
                 kSecPrivateKeyAttrs as String: [
-                    kSecAttrIsPermanent as String: storeInKeychain
+                    kSecAttrIsPermanent as String: storeInKeychain,
+                    kSecAttrApplicationTag as String: keychainAppTagPrivate
                 ],
                 kSecPublicKeyAttrs as String: [
-                    kSecAttrIsPermanent as String: false
+                    kSecAttrIsPermanent as String: storeInKeychain,
+                    kSecAttrApplicationTag as String: keychainAppTagPublic
                 ],
                 kSecAttrLabel as String: keychainLabelPrefix + name as CFString,
-                kSecAttrApplicationTag as String: keychainAppTag
             ]
             var error: Unmanaged<CFError>?
             guard let privateKey = SecKeyCreateRandomKey(keyGenParams as CFDictionary, &error),
@@ -50,7 +52,7 @@ public final class Keygen {
             kSecAttrKeyClass as String: kSecAttrKeyClassPrivate,
             kSecAttrKeySizeInBits as String: 256,
             kSecAttrLabel as String: keychainLabelPrefix + name as CFString,
-            kSecAttrApplicationTag as String: keychainAppTag
+            kSecAttrApplicationTag as String: keychainAppTagPrivate
         ]
         var error: Unmanaged<CFError>?
         guard let privateKey = SecKeyCreateWithData(privateKeyData as CFData,
@@ -63,7 +65,7 @@ public final class Keygen {
         }
         return (privateKey: privateKey, publicKey: publicKey)
     }
-
+    
     /// Attempts to generate an ECDSA key-pair from the sepcified privateKey hex
     /// - Parameter data: The private key hex
     public static func generateKeyPair(name: String, privateKeyHex: String, storeInKeychain: Bool = false) -> KeyPair? {
@@ -82,7 +84,7 @@ public final class Keygen {
     public static func loadKeyPairFromKeychain(name: String) -> KeyPair? {
         let getQuery: [String: Any] = [
             kSecClass as String: kSecClassKey,
-            kSecAttrApplicationTag as String: keychainAppTag,
+            kSecAttrApplicationTag as String: keychainAppTagPrivate,
             kSecAttrLabel as String: keychainLabelPrefix + name as CFString,
             kSecAttrKeyType as String: kSecAttrKeyTypeEC,
             kSecReturnRef as String: false
@@ -97,15 +99,25 @@ public final class Keygen {
     
     /// Clears existing Wallet key-pair, if it exists
     /// - Parameter name: The name of the wallet
-    public static func clearKeychainKeys(name: String) {
-        let deleteQuery: [String: Any] = [
+    /// - Returns: true if both keys associated with the named wallet existed and were deleted, otherwise false
+    public static func clearKeychainKeys(name: String) -> Bool {
+        let deletePublicKeyQuery: [String: Any] = [
             kSecClass as String: kSecClassKey,
-            kSecAttrApplicationTag as String: keychainAppTag,
             kSecAttrLabel as String: keychainLabelPrefix + name as CFString,
+            kSecAttrApplicationTag as String: keychainAppTagPublic,
             kSecAttrKeyType as String: kSecAttrKeyTypeEC,
             kSecReturnRef as String: true
         ]
-        SecItemDelete(deleteQuery as CFDictionary)
+        let deletePrivateKeyQuery: [String: Any] = [
+            kSecClass as String: kSecClassKey,
+            kSecAttrLabel as String: keychainLabelPrefix + name as CFString,
+            kSecAttrApplicationTag as String: keychainAppTagPrivate,
+            kSecAttrKeyType as String: kSecAttrKeyTypeEC,
+            kSecReturnRef as String: true
+        ]
+        let statusPublic = SecItemDelete(deletePublicKeyQuery as CFDictionary)
+        let statusPrivate = SecItemDelete(deletePrivateKeyQuery as CFDictionary)
+        return statusPublic == errSecSuccess && statusPrivate == errSecSuccess
     }
 }
 
