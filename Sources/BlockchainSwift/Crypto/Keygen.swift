@@ -97,6 +97,32 @@ public final class Keygen {
         return (privateKey: privateKey, publicKey: publicKey)
     }
     
+    /// Fetches the available key-pair names from the keychain
+    public static func avalaibleKeyPairsNames() -> [String] {
+        let getQuery: [String: Any] = [
+            kSecClass as String: kSecClassKey,
+            kSecAttrApplicationTag as String: keychainAppTagPrivate,
+            kSecAttrKeyType as String: kSecAttrKeyTypeEC,
+            kSecReturnAttributes as String: true,
+            kSecReturnRef as String: false,
+            kSecMatchLimit as String: 999
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(getQuery as CFDictionary, &item)
+        guard status == errSecSuccess else { return [] }
+        let privateKeys = item as! Array<CFDictionary>
+        var keyPairNames = [String]()
+        for keyDict in privateKeys {
+            let dict = keyDict as! Dictionary<String, Any>
+            let label = dict[kSecAttrLabel as String] as! String
+            guard label.hasPrefix(keychainLabelPrefix) else {
+                continue
+            }
+            keyPairNames.append(String(label.dropFirst(keychainLabelPrefix.count)))
+        }
+        return keyPairNames
+    }
+    
     /// Clears existing Wallet key-pair, if it exists
     /// - Parameter name: The name of the wallet
     /// - Returns: true if both keys associated with the named wallet existed and were deleted, otherwise false
