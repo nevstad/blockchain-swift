@@ -45,7 +45,7 @@ public struct Transaction: Codable, Serializable {
     }
     
     public static func coinbase(address: Data, blockValue: UInt64) -> Transaction {
-        let coinbaseTxOutPoint = TransactionOutputReference(hash: "spazzy".data(using: .utf8)!, index: 0)
+        let coinbaseTxOutPoint = TransactionOutputReference(hash: Data(), index: 0)
         let coinbaseTxIn = TransactionInput(previousOutput: coinbaseTxOutPoint, publicKey: address, signature: Data())
         let txIns:[TransactionInput] = [coinbaseTxIn]
         let txOuts:[TransactionOutput] = [TransactionOutput(value: blockValue, address: address)]
