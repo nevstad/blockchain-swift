@@ -75,7 +75,7 @@ public class Node {
         self.mempool = mempool ?? [Transaction]()
         
         // Setup network
-        let port = type == .central ? NodeAddress.centralAddress().port : NodeAddress.randomPort()
+        let port = type == .central ? NodeAddress.centralAddress.port : NodeAddress.randomPort()
         #if os(Linux)
         messageSender = NIOMessageSender(listenPort: port)
         messageListener = NIOMessageListener(host: "localhost", port: nodePort) // hmm
@@ -87,7 +87,7 @@ public class Node {
         #endif
 
         if type == .peer {
-            peers.append(NodeAddress.centralAddress())
+            peers.append(NodeAddress.centralAddress)
         }
     }
     
@@ -96,8 +96,7 @@ public class Node {
         messageListener.start()
         // All nodes must know of the central node, and connect to it (unless self is central node)
         if type == .peer {
-            let versionMessage = VersionMessage(version: 1, blockHeight: self.blockchain.blocks.count)
-            messageSender.sendVersionMessage(versionMessage, to: NodeAddress.centralAddress())
+            messageSender.sendVersion(version: 1, blockHeight: self.blockchain.blocks.count, to: NodeAddress.centralAddress)
         } else {
             connected = true
         }
@@ -113,6 +112,7 @@ public class Node {
     /// - Parameters:
     ///     - recipientAddress: The recipient's Wallet address
     ///     - value: The value to transact
+    @discardableResult
     public func createTransaction(sender: Wallet, recipientAddress: Data, value: UInt64) throws -> Transaction {
         if value == 0 {
             throw TxError.invalidValue
@@ -174,7 +174,7 @@ public class Node {
         
         // Broadcast new transaction to network
         for node in peers {
-            messageSender.sendTransactionsMessage(TransactionsMessage(transactions: [transaction]), to: node)
+            messageSender.sendTransactions(transactions: [transaction], to: node)
             delegate?.node(self, didSendTransactions: [transaction])
         }
         
@@ -182,6 +182,7 @@ public class Node {
     }
     
     /// Attempts to mine the next block, placing Transactions currently in the mempool into the new block
+    @discardableResult
     public func mineBlock(minerAddress: Data) -> Block {
         // Caution: Beware of state change mid-mine, ie. new transaction or (even worse) a new block.
         //          We need to reset mining if a new block arrives, we have to remove txs from mempool that are in this new received block,
@@ -210,7 +211,7 @@ public class Node {
         
         // Notify nodes about new block
         for node in peers {
-            messageSender.sendBlocksMessage(BlocksMessage(blocks: [block]), to: node)
+            messageSender.sendBlocks(blocks: [block], to: node)
             delegate?.node(self, didSendBlocks: [block])
         }
         
@@ -221,10 +222,11 @@ public class Node {
 /// Handle incoming messages from the Node Network
 extension Node: MessageListenerDelegate {
     public func didReceiveVersionMessage(_ message: VersionMessage, from: NodeAddress) {
-        let localVersion = VersionMessage(version: 1, blockHeight: blockchain.blocks.count)
+        let localVersion = 1
+        let localBlockHeight = blockchain.blocks.count
         
         // Ignore nodes running a different blockchain protocol version
-        guard message.version == localVersion.version else {
+        guard message.version == localVersion else {
             os_log("* Node received invalid Version from %s (%d)", type: .info, from.urlString, message.version)
             return
         }
@@ -232,21 +234,19 @@ extension Node: MessageListenerDelegate {
         
         // If the remote peer has a longer chain, request it's blocks starting from our latest block
         // Otherwise, if the remote peer has a shorter chain, respond with our version
-        if localVersion.blockHeight < message.blockHeight  {
+        if localBlockHeight < message.blockHeight  {
             os_log("\t\t- Remote node has longer chain, requesting blocks and transactions", type: .info)
-            let getBlocksMessage = GetBlocksMessage(fromBlockHash: blockchain.lastBlockHash())
-            let getTransactionsMessage = GetTransactionsMessage()
-            messageSender.sendGetBlocksMessage(getBlocksMessage, to: from)
-            messageSender.sendGetTransactionsMessage(getTransactionsMessage, to: from)
-        } else if localVersion.blockHeight > message.blockHeight {
+            messageSender.sendGetBlocks(fromBlockHash: blockchain.lastBlockHash(), to: from)
+            messageSender.sendGetTransactions(to: from)
+        } else if localBlockHeight > message.blockHeight {
             os_log("\t\t- Remote node has shorter chain, sending version", type: .info)
-            messageSender.sendVersionMessage(localVersion, to: from)
+            messageSender.sendVersion(version: localVersion, blockHeight: localBlockHeight, to: from)
         } else if !peers.contains(from) {
-            messageSender.sendVersionMessage(localVersion, to: from)
+            messageSender.sendVersion(version: localVersion, blockHeight: localBlockHeight, to: from)
         }
         
         // If we have the longer chain, or same length, consider ourselves connected
-        if localVersion.blockHeight >= message.blockHeight {
+        if localBlockHeight >= message.blockHeight {
             connected = true
         }
         
@@ -262,9 +262,7 @@ extension Node: MessageListenerDelegate {
     
     public func didReceiveGetTransactionsMessage(_ message: GetTransactionsMessage, from: NodeAddress) {
         os_log("* Node received getTransactions from %s", type: .info, from.urlString)
-        let transactionsMessage = TransactionsMessage(transactions: mempool)
-        os_log("\t - Sending transactions message", type: .info)
-        messageSender.sendTransactionsMessage(transactionsMessage, to: from)
+        messageSender.sendTransactions(transactions: mempool, to: from)
         delegate?.node(self, didSendTransactions: mempool)
     }
     
@@ -303,7 +301,7 @@ extension Node: MessageListenerDelegate {
         // Central node is responsible for distributing the new transactions (nodes will handle verification internally)
         if type == .central {
             for node in peers.filter({ $0 != from })  {
-                messageSender.sendTransactionsMessage(message, to: node)
+                messageSender.sendTransactions(transactions: message.transactions, to: node)
             }
         }
     }
@@ -311,13 +309,11 @@ extension Node: MessageListenerDelegate {
     public func didReceiveGetBlocksMessage(_ message: GetBlocksMessage, from: NodeAddress) {
         os_log("* Node received .getBlocks from %s", type: .info, from.urlString)
         if message.fromBlockHash.isEmpty {
-            messageSender.sendBlocksMessage(BlocksMessage(blocks: blockchain.blocks), to: from)
+            messageSender.sendBlocks(blocks: blockchain.blocks, to: from)
             delegate?.node(self, didSendBlocks: blockchain.blocks)
         } else if let fromHashIndex = blockchain.blocks.firstIndex(where: { $0.hash == message.fromBlockHash }) {
             let requestedBlocks = Array<Block>(blockchain.blocks[fromHashIndex...])
-            let blocksMessage = BlocksMessage(blocks: requestedBlocks)
-            os_log("\t - Sending blocks message with %d blocks", type: .info, blocksMessage.blocks.count)
-            messageSender.sendBlocksMessage(blocksMessage, to: from)
+            messageSender.sendBlocks(blocks: requestedBlocks, to: from)
             delegate?.node(self, didSendBlocks: requestedBlocks)
         } else {
             os_log("\t - Unable to satisfy fromBlockHash=%s", type: .debug, message.fromBlockHash.hex)
@@ -352,7 +348,7 @@ extension Node: MessageListenerDelegate {
         if case .central = type {
             if !validBlocks.isEmpty {
                 for node in peers.filter({ $0 != from })  {
-                    messageSender.sendBlocksMessage(message, to: node)
+                    messageSender.sendBlocks(blocks: message.blocks, to: node)
                 }
             }
         }
@@ -447,3 +443,4 @@ class UserDefaultsTransactionsStore: TransactionsStore {
         UserDefaults.blockchainSwift.setData(nil, forKey: .transactions)
     }
 }
+

@@ -31,9 +31,7 @@ extension NodeAddress: Equatable {
 
 extension NodeAddress {
     // For simplicity's sake we hard code the central node address
-    public static func centralAddress() -> NodeAddress {
-        return NodeAddress(host: "central.lucidity.network", port: 1337)
-    }
+    static var centralAddress: NodeAddress = NodeAddress(host: "central.lucidity.network", port: 1337)
     
     public static func randomPort() -> UInt32 {
         return UInt32.random(in: (1338...13337))
@@ -41,7 +39,7 @@ extension NodeAddress {
     
     public var isCentralNode: Bool {
         get {
-            return self == NodeAddress.centralAddress()
+            return self == NodeAddress.centralAddress
         }
     }
 }

@@ -126,6 +126,7 @@ public final class Keygen {
     /// Clears existing Wallet key-pair, if it exists
     /// - Parameter name: The name of the wallet
     /// - Returns: true if both keys associated with the named wallet existed and were deleted, otherwise false
+    @discardableResult
     public static func clearKeychainKeys(name: String) -> Bool {
         let deletePublicKeyQuery: [String: Any] = [
             kSecClass as String: kSecClassKey,

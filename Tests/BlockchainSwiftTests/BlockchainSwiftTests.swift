@@ -153,6 +153,8 @@ final class BlockchainSwiftTests: XCTestCase {
     func testTransactions() throws {
         // Two wallets, one blockchain
         let wallet1 = Wallet(name: "Node1Wallet")!
+        // Override central address
+        NodeAddress.centralAddress = NodeAddress(host: "localhost", port: 1337)
         let node1 = Node(type: .central)
         let wallet2 = Wallet(name: "Node2Wallet")!
         let _ = node1.mineBlock(minerAddress: wallet1.address)
@@ -197,6 +199,8 @@ final class BlockchainSwiftTests: XCTestCase {
         // Excpect the genesis block to propagate to all nodes
         let initialSync = XCTestExpectation(description: "Initial sync")
         let node1Wallet = Wallet(name: "Node1Wallet")!
+        // Override central address
+        NodeAddress.centralAddress = NodeAddress(host: "localhost", port: 43210)
         let node1 = Node(type: .central)
         node1.connect()
         defer { node1.disconnect() }
@@ -216,7 +220,7 @@ final class BlockchainSwiftTests: XCTestCase {
                 }
             }
         }
-        wait(for: [initialSync], timeout: 3)
+        wait(for: [initialSync], timeout: 5)
         
         // Now create a transaction on node1 - from node1's wallet to node'2s wallet
         // Expect everyone's mempool to update with the new transaction
@@ -340,8 +344,3 @@ final class BlockchainSwiftTests: XCTestCase {
     
 }
 
-private extension NodeAddress {
-    public static func centralAddress() -> NodeAddress {
-        return NodeAddress(host: "127.0.0.1", port: 1337)
-    }
-}

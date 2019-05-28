@@ -66,25 +66,30 @@ import Network
 /// The MessageListener handles all incoming connections to a Node
 @available(iOS 12.0, macOS 10.14, *)
 public class NWListenerMessageListener: MessageListener {
-    public var listener: NWListener?
-    public let queue: DispatchQueue
-    public var connections = [NWConnection]()
+    private var listener: NWListener?
+    private let group: DispatchGroup
+    private let queue: DispatchQueue
+    private var connections = [NWConnection]()
     private var port: UInt32
     
     var delegate: MessageListenerDelegate?
     
     init(port: UInt32) {
         self.port = port
+        group = DispatchGroup()
         queue = DispatchQueue(label: "Node Server Queue")
     }
     
     private func handleConnection(_ newConnection: NWConnection) {
         newConnection.receive(minimumIncompleteLength: 1, maximumLength: 13371337) { [weak self] (data, context, isComplete, error) in
+            self?.group.wait()
+            self?.group.enter()
             if let data = data, let message = try? Message.deserialize(data), let strongSelf = self {
                 strongSelf.handleMessage(message, from: NodeAddress(host: newConnection.endpoint.host!, port: message.fromPort))
             } else {
                 os_log("Could not deserialize message", type: .error)
             }
+            self?.group.leave()
         }
         newConnection.start(queue: queue)
         connections.append(newConnection)
@@ -122,13 +127,16 @@ extension NWEndpoint {
                 addr.rawValue.forEach { bytes.append($0) }
                 return bytes.map { String($0) }.joined(separator: ".")
             case .ipv6(let addr):
-                if let ipv4addr = addr.asIPv4 {
-                    var bytes: [UInt8] = []
-                    ipv4addr.rawValue.forEach { bytes.append($0) }
-                    return bytes.map { String($0) }.joined(separator: ".")
-                } else {
+                var output = Data(count: Int(INET6_ADDRSTRLEN))
+                var address = addr
+                guard let presentationBytes = output.withUnsafeMutableBytes({
+                    inet_ntop(AF_INET6, &address, $0, socklen_t(INET6_ADDRSTRLEN))
+                }) else {
                     return nil
                 }
+                return String(cString: presentationBytes)
+            case .name(let name, _):
+                return name
             default:
                 return nil
             }

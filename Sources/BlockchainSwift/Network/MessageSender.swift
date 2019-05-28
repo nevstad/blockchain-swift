@@ -9,6 +9,15 @@ import Foundation
 import Network
 import os.log
 
+
+extension Array {
+    func chunked(into size: Int) -> [[Element]] {
+        return stride(from: 0, to: count, by: size).map {
+            Array(self[$0 ..< Swift.min($0 + size, count)])
+        }
+    }
+}
+
 /// The MessageSender handles a an outgoing connection to another Node
 public protocol MessageSender {
     var listenPort: UInt32 { get set }
@@ -16,34 +25,50 @@ public protocol MessageSender {
 }
 
 extension MessageSender {
-    public func sendVersionMessage(_ message: VersionMessage, to: NodeAddress, completion: ((Bool) -> Void)? = nil) {
-        send(command: .version, payload: message, to: to, completion: completion)
+    public func sendVersion(version: Int, blockHeight: Int, to: NodeAddress, completion: ((Bool) -> Void)? = nil) {
+        send(command: .version, payload: VersionMessage(version: version, blockHeight: blockHeight), to: to, completion: completion)
     }
-    public func sendGetTransactionsMessage(_ message: GetTransactionsMessage, to: NodeAddress, completion: ((Bool) -> Void)? = nil) {
-        send(command: .getTransactions, payload: message, to: to, completion: completion)
+    public func sendGetTransactions(to: NodeAddress, completion: ((Bool) -> Void)? = nil) {
+        send(command: .getTransactions, payload: GetTransactionsMessage(), to: to, completion: completion)
     }
-    public func sendTransactionsMessage(_ message: TransactionsMessage, to: NodeAddress, completion: ((Bool) -> Void)? = nil) {
-        send(command: .transactions, payload: message, to: to, completion: completion)
+    public func sendTransactions(transactions: [Transaction], to: NodeAddress, completion: ((Bool) -> Void)? = nil) {
+        if transactions.count > TransactionsMessage.maxTransactionsPerMessage {
+            for chunk in transactions.chunked(into: TransactionsMessage.maxTransactionsPerMessage) {
+                send(command: .transactions, payload: TransactionsMessage(transactions: chunk), to: to, completion: completion)
+            }
+        } else {
+            send(command: .transactions, payload: TransactionsMessage(transactions: transactions), to: to, completion: completion)
+        }
     }
-    public func sendGetBlocksMessage(_ message: GetBlocksMessage, to: NodeAddress, completion: ((Bool) -> Void)? = nil) {
-        send(command: .getBlocks, payload: message, to: to, completion: completion)
+    public func sendGetBlocks(fromBlockHash: Data, to: NodeAddress, completion: ((Bool) -> Void)? = nil) {
+        send(command: .getBlocks, payload: GetBlocksMessage(fromBlockHash: fromBlockHash), to: to, completion: completion)
     }
-    public func sendBlocksMessage(_ message: BlocksMessage, to: NodeAddress, completion: ((Bool) -> Void)? = nil) {
-        send(command: .blocks, payload: message, to: to, completion: completion)
+    public func sendBlocks(blocks: [Block], to: NodeAddress, completion: ((Bool) -> Void)? = nil) {
+        if blocks.count > BlocksMessage.maxBlocksPerMessage {
+            for chunk in blocks.chunked(into: BlocksMessage.maxBlocksPerMessage) {
+                send(command: .blocks, payload: BlocksMessage(blocks: chunk), to: to, completion: completion)
+            }
+        } else {
+            send(command: .blocks, payload: BlocksMessage(blocks: blocks), to: to, completion: completion)
+        }
     }
 }
 
 
 public class NWConnectionMessageSender: MessageSender {
-    public var queue: DispatchQueue
+    private var queue: DispatchQueue
+    private var group: DispatchGroup
     public var listenPort: UInt32
     
     public init(listenPort port: UInt32, stateHandler: ((NWConnection.State) -> Void)? = nil) {
+        group = DispatchGroup()
         queue = DispatchQueue(label: "NWConnectionMessageSender Queue")
         listenPort = port
     }
     
     public func send(command: Message.Command, payload: Serializable, to: NodeAddress, completion: ((Bool) -> Void)? = nil) {
+        group.wait()
+        group.enter()
         let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(to.host), port: NWEndpoint.Port(rawValue: UInt16(to.port))!)
         let connection = NWConnection(to: endpoint, using: .tcp)
         connection.start(queue: queue)
@@ -56,6 +81,7 @@ public class NWConnectionMessageSender: MessageSender {
             }
             connection.cancel()
             completion?(error == nil)
+            self.group.leave()
         }))
     }
 }
@@ -93,5 +119,4 @@ public class NIOMessageSender: MessageSender {
         }
     }
 }
-
 #endif

@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import os.log
 
 public class Blockchain: Codable {
     // Coin specifics, stolen from Bitcoin
@@ -76,11 +75,9 @@ public class Blockchain: Codable {
     /// Updates UTXOs when a new block is added
     /// - Parameter block: The block that has been added, whose transactions we must go through to find the new UTXO state
     public func updateSpendableOutputs(with block: Block) {
-        os_log("pre: %s", type: .debug, utxos.debugDescription)
         for transaction in block.transactions {
             updateSpendableOutputs(with: transaction)
         }
-        os_log("post: %s", type: .debug, utxos.debugDescription)
     }
     
     /// Updates UTXOs when a new block is added

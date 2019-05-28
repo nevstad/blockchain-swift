@@ -61,6 +61,8 @@ public struct GetTransactionsMessage: Serializable, Deserializable, Codable {
 
 /// The transactions message contains new transations
 public struct TransactionsMessage: Serializable, Deserializable, Codable {
+    public static let maxTransactionsPerMessage = 10
+    
     public let transactions: [Transaction]
 
     public func serialized() -> Data {
@@ -87,6 +89,8 @@ public struct GetBlocksMessage: Serializable, Deserializable, Codable {
 
 /// The BlocksMessage contains transferred Blocks
 public struct BlocksMessage: Serializable, Deserializable, Codable {
+    public static let maxBlocksPerMessage = 10
+    
     public let blocks: [Block]
 
     public func serialized() -> Data {
