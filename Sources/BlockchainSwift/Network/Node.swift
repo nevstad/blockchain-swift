@@ -365,18 +365,18 @@ extension Node: MessageListenerDelegate {
 
 extension Node {
     public func saveState() {
-        try? UserDefaultsBlockchainStore().save(blockchain)
-        try? UserDefaultsTransactionsStore().save(mempool)
+        try? UserDefaults.blockchainSwift.set(blockchain, forKey: .blockchain)
+        try? UserDefaults.blockchainSwift.set(mempool, forKey: .transactions)
     }
     
     public func clearState() {
-        UserDefaultsBlockchainStore().clear()
-        UserDefaultsTransactionsStore().clear()
+        UserDefaults.blockchainSwift.clear(forKey: .blockchain)
+        UserDefaults.blockchainSwift.clear(forKey: .transactions)
     }
     
     public static func loadState() -> (blockchain: Blockchain?, mempool: [Transaction]?) {
-        let bc = UserDefaultsBlockchainStore().load()
-        let mp = UserDefaultsTransactionsStore().load()
+        let bc: Blockchain? = UserDefaults.blockchainSwift.get(forKey: .blockchain)
+        let mp: [Transaction]? = UserDefaults.blockchainSwift.get(forKey: .transactions)
         return (blockchain: bc, mempool: mp)
     }
 }
@@ -390,65 +390,19 @@ extension UserDefaults {
         case blockchain, transactions, wallet
     }
     
-    internal func setData(_ data: Data?, forKey key: DataStoreKey) {
-        set(data, forKey: key.rawValue)
+    func set<T: Codable>(_ codable: T, forKey key: DataStoreKey) throws {
+        set(try JSONEncoder().encode(codable), forKey: key.rawValue)
     }
-    
-    internal func getData(forKey key: DataStoreKey) -> Data? {
-        return data(forKey: key.rawValue)
-    }
-}
 
-enum StoreError: Error {
-    case loadError
-    case saveError
-}
-
-protocol BlockchainStore {
-    func save(_ blockchain: Blockchain) throws
-    func load() -> Blockchain?
-    func clear()
-}
-
-protocol TransactionsStore {
-    func save(_ transactions: [Transaction]) throws
-    func load() -> [Transaction]?
-    func clear()
-}
-
-class UserDefaultsBlockchainStore: BlockchainStore {
-    func save(_ blockchain: Blockchain) throws {
-        UserDefaults.blockchainSwift.setData(try JSONEncoder().encode(blockchain), forKey: .blockchain)
-    }
-    
-    func load() -> Blockchain? {
-        if let blockchainData = UserDefaults.blockchainSwift.getData(forKey: .blockchain) {
-            return try? JSONDecoder().decode(Blockchain.self, from: blockchainData)
+    func get<T: Codable>(forKey key: DataStoreKey) -> T? {
+        if let data = data(forKey: key.rawValue) {
+            return try? JSONDecoder().decode(T.self, from: data)
         } else {
             return nil
         }
     }
     
-    func clear() {
-        UserDefaults.blockchainSwift.setData(nil, forKey: .blockchain)
+    func clear(forKey key: DataStoreKey) {
+        set(nil, forKey: key.rawValue)
     }
 }
-
-class UserDefaultsTransactionsStore: TransactionsStore {
-    func save(_ transactions: [Transaction]) throws {
-        UserDefaults.blockchainSwift.setData(try JSONEncoder().encode(transactions), forKey: .transactions)
-    }
-    
-    func load() -> [Transaction]? {
-        if let transactionsData = UserDefaults.blockchainSwift.getData(forKey: .transactions) {
-            return try? JSONDecoder().decode([Transaction].self, from: transactionsData)
-        } else {
-            return nil
-        }
-    }
-    
-    func clear() {
-        UserDefaults.blockchainSwift.setData(nil, forKey: .transactions)
-    }
-}
-
