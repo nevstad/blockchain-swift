@@ -32,56 +32,41 @@ extension MessageSender {
         send(command: .getTransactions, payload: GetTransactionsMessage(), to: to, completion: completion)
     }
     public func sendTransactions(transactions: [Transaction], to: NodeAddress, completion: ((Bool) -> Void)? = nil) {
-        if transactions.count > TransactionsMessage.maxTransactionsPerMessage {
-            for chunk in transactions.chunked(into: TransactionsMessage.maxTransactionsPerMessage) {
-                send(command: .transactions, payload: TransactionsMessage(transactions: chunk), to: to, completion: completion)
-            }
-        } else {
-            send(command: .transactions, payload: TransactionsMessage(transactions: transactions), to: to, completion: completion)
-        }
+        send(command: .transactions, payload: TransactionsMessage(transactions: transactions), to: to, completion: completion)
     }
     public func sendGetBlocks(fromBlockHash: Data, to: NodeAddress, completion: ((Bool) -> Void)? = nil) {
         send(command: .getBlocks, payload: GetBlocksMessage(fromBlockHash: fromBlockHash), to: to, completion: completion)
     }
     public func sendBlocks(blocks: [Block], to: NodeAddress, completion: ((Bool) -> Void)? = nil) {
-        if blocks.count > BlocksMessage.maxBlocksPerMessage {
-            for chunk in blocks.chunked(into: BlocksMessage.maxBlocksPerMessage) {
-                send(command: .blocks, payload: BlocksMessage(blocks: chunk), to: to, completion: completion)
-            }
-        } else {
-            send(command: .blocks, payload: BlocksMessage(blocks: blocks), to: to, completion: completion)
-        }
+        send(command: .blocks, payload: BlocksMessage(blocks: blocks), to: to, completion: completion)
     }
 }
 
 
 public class NWConnectionMessageSender: MessageSender {
     private var queue: DispatchQueue
-    private var group: DispatchGroup
     public var listenPort: UInt32
     
     public init(listenPort port: UInt32, stateHandler: ((NWConnection.State) -> Void)? = nil) {
-        group = DispatchGroup()
         queue = DispatchQueue(label: "NWConnectionMessageSender Queue")
         listenPort = port
     }
     
     public func send(command: Message.Command, payload: Serializable, to: NodeAddress, completion: ((Bool) -> Void)? = nil) {
-        group.wait()
-        group.enter()
+        let message = Message(command: command, payload: payload.serialized(), fromPort: listenPort)
         let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(to.host), port: NWEndpoint.Port(rawValue: UInt16(to.port))!)
         let connection = NWConnection(to: endpoint, using: .tcp)
         connection.start(queue: queue)
-        let message = Message(command: command, payload: payload.serialized(), fromPort: listenPort)
-        connection.send(content: message.serialized(), completion: .contentProcessed({ (error) in
+        connection.send(content: message.serialized(), contentContext: .defaultStream, isComplete: false, completion: .contentProcessed({ (error) in
             if error != nil {
                 os_log("Sending message failed", type: .error)
             } else {
-                os_log("Sent %s message", type: .info, message.command.description)
+                connection.send(content: nil, contentContext: .defaultStream, isComplete: true, completion: .contentProcessed({ (error) in
+                    os_log("Sent %s message", type: .info, message.command.description)
+                    connection.cancel()
+                    completion?(error == nil)
+                }))
             }
-            connection.cancel()
-            completion?(error == nil)
-            self.group.leave()
         }))
     }
 }

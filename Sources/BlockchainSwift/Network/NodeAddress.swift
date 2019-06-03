@@ -13,7 +13,7 @@ public struct NodeAddress: Codable {
 
     public var urlString: String {
         get {
-            return "http://\(host):\(port)"
+            return "\(host):\(port)"
         }
     }
     public var url: URL {

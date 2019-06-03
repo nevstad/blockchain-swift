@@ -183,7 +183,7 @@ public class Node {
     
     /// Attempts to mine the next block, placing Transactions currently in the mempool into the new block
     @discardableResult
-    public func mineBlock(minerAddress: Data) -> Block {
+    public func mineBlock(minerAddress: Data) -> Block? {
         // Caution: Beware of state change mid-mine, ie. new transaction or (even worse) a new block.
         //          We need to reset mining if a new block arrives, we have to remove txs from mempool that are in this new received block,
         //          and we must update utxos... When resolving conflicts, the block timestamp is relevant
@@ -201,6 +201,14 @@ public class Node {
         let proof = blockchain.pow.work(prevHash: previousHash, timestamp: timestamp, transactions: transactions)
         
         // TODO: What if someone else has mined blocks and sent to us while working?
+        if blockchain.lastBlockHash() != previousHash {
+            os_log("Received block while mining, discarding block and clearning mined transactions")
+         
+            let newBlock = blockchain.blocks.last!
+            mempool = mempool.filter { !newBlock.transactions.contains($0) }
+            
+            return nil
+        }
         
         // Create the new block
         let block = blockchain.createBlock(nonce: proof.nonce, hash: proof.hash, previousHash: previousHash, timestamp: timestamp, transactions: transactions)
