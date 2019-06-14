@@ -10,8 +10,8 @@ import os.log
 
 public protocol NodeDelegate {
     func nodeDidConnectToNetwork(_ node: Node)
-    func node(_ node: Node, didAddPeer: NodeAddress)
-    func node(_ node: Node, didRemovePeer: NodeAddress)
+    func node(_ node: Node, didAddPeer peer: NodeAddress)
+    func node(_ node: Node, didRemovePeer peer: NodeAddress)
     func node(_ node: Node, didCreateTransactions transactions: [Transaction])
     func node(_ node: Node, didSendTransactions transactions: [Transaction])
     func node(_ node: Node, didReceiveTransactions transactions: [Transaction])
