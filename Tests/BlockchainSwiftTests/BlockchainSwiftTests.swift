@@ -1,8 +1,48 @@
 import XCTest
 @testable import BlockchainSwift
+import GRDB
 
 final class BlockchainSwiftTests: XCTestCase {
     
+    class MessageListenerTestDelegate: MessageListenerDelegate {
+        var version: Bool = false
+        var transactions: [Transaction] = []
+        var getTransactions: Bool = false
+        var blocks: [Block] = []
+        var getBlocks: Bool = false
+        var ping: Bool = false
+        var pong: Bool = false
+        func didReceiveVersionMessage(_ message: VersionMessage, from: NodeAddress) { version = true }
+        func didReceiveGetTransactionsMessage(_ message: GetTransactionsMessage, from: NodeAddress) { getTransactions = true }
+        func didReceiveTransactionsMessage(_ message: TransactionsMessage, from: NodeAddress) { transactions = message.transactions }
+        func didReceiveGetBlocksMessage(_ message: GetBlocksMessage, from: NodeAddress) { getBlocks = true }
+        func didReceiveBlocksMessage(_ message: BlocksMessage, from: NodeAddress) { blocks = message.blocks }
+        func didReceivePingMessage(_ message: PingMessage, from: NodeAddress) { ping = true }
+        func didReceivePongMessage(_ message: PongMessage, from: NodeAddress) { pong = true }
+    }
+
+    class MockNetwork {
+        static func randomNetwork() -> (network: NWNetwork, delegate: MessageListenerTestDelegate, port: UInt32) {
+            let delegate = MessageListenerTestDelegate()
+            let port = NodeAddress.randomPort()
+            let network = NWNetwork(port: port)
+            network.delegate = delegate
+            network.start()
+            return (network: network, delegate: delegate, port: port)
+        }
+        #if canImport(NIO)
+        static func randomNIO() -> (network: NIONetwork, delegate: MessageListenerTestDelegate, port: UInt32) {
+            let delegate = MessageListenerTestDelegate()
+            let port = NodeAddress.randomPort()
+            let network = NIONetwork(port: Int(port))
+            network.delegate = delegate
+            network.start()
+            return (network: network, delegate: delegate, port: port)
+        }
+        #endif
+    }
+    
+
     func testKeyGenAndTxSigning() {
         if let keyPair = Keygen.generateKeyPair(name: "TempPair") {
             if let pubKeyData = Keygen.copyExternalRepresentation(key: keyPair.publicKey) {
@@ -86,7 +126,7 @@ final class BlockchainSwiftTests: XCTestCase {
         defer { Keygen.clearKeychainKeys(name: "test") }
         let wallet2 = Wallet(name: "test2", keyPair: Keygen.loadKeyPairFromKeychain(name: "test")!)
         let wallet3 = Wallet(name: "test3")!
-        let _ = node.mineBlock(minerAddress: wallet1.address)
+        let _ = try? node.mineBlock(minerAddress: wallet1.address)
         let tx1 = try? node.createTransaction(sender: wallet1, recipientAddress: wallet3.address, value: 1)
         let tx2 = try? node.createTransaction(sender: wallet2, recipientAddress: wallet3.address, value: 1)
         XCTAssert(tx1 != nil, "Could not create tx with original wallet")
@@ -157,7 +197,7 @@ final class BlockchainSwiftTests: XCTestCase {
         NodeAddress.centralAddress = NodeAddress(host: "localhost", port: 1337)
         let node1 = Node(type: .central)
         let wallet2 = Wallet(name: "Node2Wallet")!
-        let _ = node1.mineBlock(minerAddress: wallet1.address)
+        let _ = try? node1.mineBlock(minerAddress: wallet1.address)
         
         // Wallet1 has mined genesis block, and should have gotten the reward
         XCTAssert(node1.blockchain.balance(for: wallet1.address) == node1.blockchain.currentBlockValue())
@@ -167,7 +207,7 @@ final class BlockchainSwiftTests: XCTestCase {
         // Send 1000 from Wallet1 to Wallet2, and again let wallet1 mine the next block
         let _ = try node1.createTransaction(sender: wallet1, recipientAddress: wallet2.address, value: 1)
         XCTAssert(node1.mempool.count == 1) // One Tx should be in the pool, ready to go into the next block when mined
-        let _ = node1.mineBlock(minerAddress: wallet1.address)
+        let _ = try? node1.mineBlock(minerAddress: wallet1.address)
         XCTAssert(node1.mempool.count == 0) // Tx pool should now be clear
         
         // Wallet1 should now have a balance == two block rewards - 1000
@@ -204,7 +244,7 @@ final class BlockchainSwiftTests: XCTestCase {
         let node1 = Node(type: .central)
         node1.connect()
         defer { node1.disconnect() }
-        let _ = node1.mineBlock(minerAddress: node1Wallet.address)
+        let _ = try? node1.mineBlock(minerAddress: node1Wallet.address)
         let node2Wallet = Wallet(name: "Node2Wallet")!
         let node2 = Node(type: .peer)
         node2.connect()
@@ -261,12 +301,12 @@ final class BlockchainSwiftTests: XCTestCase {
                 }
             }
         }
-        wait(for: [newNodeTxSync], timeout: 3)
+        wait(for: [newNodeTxSync], timeout: 5)
         
         // Now let node2 mine the next block, claiming the Coinbase reward as well as receiving 1 from the above transaction
         // Expect every node's blocks to update, and everyones utxos to update appropriately
         let mineSync = XCTestExpectation(description: "Mining sync")
-        let _ = node2.mineBlock(minerAddress: node2Wallet.address)
+        let _ = try? node2.mineBlock(minerAddress: node2Wallet.address)
         DispatchQueue.global().async {
             while true {
                 let requirements = [
@@ -291,14 +331,94 @@ final class BlockchainSwiftTests: XCTestCase {
                 }
             }
         }
-        wait(for: [mineSync], timeout: 3)
+        wait(for: [mineSync], timeout: 5)
+    }
+    
+    func testNetworkPingPong() {
+        let nw1 = MockNetwork.randomNetwork()
+        let nw2 = MockNetwork.randomNetwork()
+        defer {
+            nw1.network.stop()
+            nw2.network.stop()
+        }
+
+        nw1.network.send(command: .ping, payload: PingMessage(), to: NodeAddress(host: "127.0.0.1", port: nw2.port))
+        let pingPongExp = XCTestExpectation(description: "(Network) Ping? PONG!")
+        DispatchQueue.global().async {
+            while true {
+                if nw2.delegate.ping && nw1.delegate.pong {
+                    pingPongExp.fulfill()
+                    break
+                }
+            }
+        }
+        wait(for: [pingPongExp], timeout: 3)
+        
+        #if canImport(NIO)
+        let nw3 = MockNetwork.randomNIO()
+        let nw4 = MockNetwork.randomNIO()
+        defer {
+            nw3.network.stop()
+            nw4.network.stop()
+        }
+
+        nw3.network.send(command: .ping, payload: PingMessage(), to: NodeAddress(host: "127.0.0.1", port: nw4.port))
+        let pingPongExp2 = XCTestExpectation(description: "(NIO) Ping? PONG!")
+        DispatchQueue.global().async {
+            while true {
+                if nw4.delegate.ping && nw3.delegate.pong {
+                    pingPongExp2.fulfill()
+                    break
+                }
+            }
+        }
+        wait(for: [pingPongExp2], timeout: 3)
+        #endif
+    }
+    
+    func testNodePingPongPrune() {
+        Node.pingInterval = 3
+        NodeAddress.centralAddress = NodeAddress(host: "localhost", port: 43210)
+        let central = Node(type: .central)
+        central.connect()
+        defer { central.disconnect() }
+        
+        let peer1 = Node(type: .peer)
+        peer1.connect()
+        defer { peer1.disconnect() }
+
+        let peer2 = Node(type: .peer)
+        peer2.connect()
+
+        let peerCountExp = XCTestExpectation(description: "Initial peers")
+        DispatchQueue.global().async {
+            while true {
+                if central.peers.count == 2 {
+                    peerCountExp.fulfill()
+                    break
+                }
+            }
+        }
+        wait(for: [peerCountExp], timeout: Node.pingInterval)
+        
+        peer2.disconnect()
+        let peerCountExp2 = XCTestExpectation(description: "Pruned peers")
+        DispatchQueue.global().async {
+            while true {
+                if central.peers.count == 1 {
+                    peerCountExp2.fulfill()
+                    break
+                }
+            }
+        }
+        wait(for: [peerCountExp2], timeout: Node.pingInterval * 5)
     }
     
     func testNodeStatePersistence() {
         // Create a Node, mine a block, and add a transaction - then persist it's state
         let node = Node()
         let wallet = Wallet(name: "Wallet")!
-        let _ = node.mineBlock(minerAddress: wallet.address)
+        let _ = try? node.mineBlock(minerAddress: wallet.address)
         let _ = try? node.createTransaction(sender: wallet, recipientAddress: wallet.address, value: 1000)
         node.saveState()
         let state = Node.loadState()
@@ -329,6 +449,7 @@ final class BlockchainSwiftTests: XCTestCase {
         XCTAssert(expectedCirculatingSupply == blockchain.circulatingSupply())
     }
     
+    
     static let allTests = [
         ("testKeyGenAndTxSigning", testKeyGenAndTxSigning),
         ("testKeyRestoreData", testKeyRestoreData),
@@ -339,6 +460,9 @@ final class BlockchainSwiftTests: XCTestCase {
         ("testWalletTxSigning", testWalletTxSigning),
         ("testTransactions", testTransactions),
         ("testNodeNetwork", testNodeNetwork),
+        ("testNetworkPingPong", testNetworkPingPong),
+        ("testNodePingPongPrune", testNodePingPongPrune),
+        ("testNodeStatePersistence", testNodeStatePersistence),
         ("testCirculatingSupply", testCirculatingSupply)
     ]
     

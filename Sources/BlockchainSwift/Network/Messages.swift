@@ -19,6 +19,8 @@ public struct Message: Serializable, Deserializable, Codable {
         case transactions
         case getBlocks
         case blocks
+        case ping
+        case pong
     }
     
     public let command: Command
@@ -61,8 +63,6 @@ public struct GetTransactionsMessage: Serializable, Deserializable, Codable {
 
 /// The transactions message contains new transations
 public struct TransactionsMessage: Serializable, Deserializable, Codable {
-    public static let maxTransactionsPerMessage = 10
-    
     public let transactions: [Transaction]
 
     public func serialized() -> Data {
@@ -89,8 +89,6 @@ public struct GetBlocksMessage: Serializable, Deserializable, Codable {
 
 /// The BlocksMessage contains transferred Blocks
 public struct BlocksMessage: Serializable, Deserializable, Codable {
-    public static let maxBlocksPerMessage = 10
-    
     public let blocks: [Block]
 
     public func serialized() -> Data {
@@ -99,5 +97,27 @@ public struct BlocksMessage: Serializable, Deserializable, Codable {
     
     public static func deserialize(_ data: Data) throws -> BlocksMessage {
         return try JSONDecoder().decode(BlocksMessage.self, from: data)
+    }
+}
+
+// Ping message to indicate a request to see if peers are still active in the network
+public struct PingMessage: Serializable, Deserializable, Codable {
+    public func serialized() -> Data {
+        return try! JSONEncoder().encode(self)
+    }
+    
+    public static func deserialize(_ data: Data) throws -> PingMessage {
+        return try JSONDecoder().decode(PingMessage.self, from: data)
+    }
+}
+
+// Pong message to indicate a peer is still active in the network
+public struct PongMessage: Serializable, Deserializable, Codable {
+    public func serialized() -> Data {
+        return try! JSONEncoder().encode(self)
+    }
+    
+    public static func deserialize(_ data: Data) throws -> PongMessage {
+        return try JSONDecoder().decode(PongMessage.self, from: data)
     }
 }

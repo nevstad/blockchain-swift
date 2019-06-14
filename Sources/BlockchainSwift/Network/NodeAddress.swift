@@ -29,6 +29,8 @@ extension NodeAddress: Equatable {
     }
 }
 
+extension NodeAddress: Hashable {}
+
 extension NodeAddress {
     // For simplicity's sake we hard code the central node address
     static var centralAddress: NodeAddress = NodeAddress(host: "central.lucidity.network", port: 1337)
@@ -43,3 +45,4 @@ extension NodeAddress {
         }
     }
 }
+
