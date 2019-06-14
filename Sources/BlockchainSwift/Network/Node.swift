@@ -42,7 +42,7 @@ public class Node {
     public var peers = [NodeAddress]()
     private var peersLastSeen = [NodeAddress: Date]()
     private var network: NetworkProvider
-    private var peerPruneTimer: Timer?
+    private var peerPruneTimer = RepeatingTimer(timeInterval: Node.pingInterval)
     public static var pingInterval: TimeInterval = 10
     
     /// Delegate
@@ -133,32 +133,31 @@ public class Node {
     
     /// Handle monitoring peers and whether they are still part of the network, pruning those that are not
     private func startPeerPruningTask() {
-        peerPruneTimer = Timer.scheduledTimer(withTimeInterval: Node.pingInterval, repeats: true, block: { [weak self] (timer) in
-            guard let strongSelf = self else { return }
-            
+        peerPruneTimer.eventHandler = {
             // Prune inactive peers
-            for (peer, pingTime) in strongSelf.network.pingSendTimes {
-                if let pongTime = strongSelf.network.pongReceiveTimes[peer] {
+            for (peer, pingTime) in self.network.pingSendTimes {
+                if let pongTime = self.network.pongReceiveTimes[peer] {
                     if pongTime.timeIntervalSince(pingTime) > Node.pingInterval / 2 {
                         // The latest Pong is not within the expected time since latest ping
-                        strongSelf.removePeer(peer)
+                        self.removePeer(peer)
                     }
                 } else {
                     if Date().timeIntervalSince(pingTime) > Node.pingInterval / 2 {
                         // We never received a Pong within the expected time
-                        strongSelf.removePeer(peer)
+                        self.removePeer(peer)
                     }
                 }
             }
             
             // Send ping to all active peers
-            strongSelf.peers.forEach { strongSelf.network.sendPing(to: $0) }
-        })
+            self.peers.forEach { self.network.sendPing(to: $0) }
+        }
+        peerPruneTimer.resume()
     }
     
     /// Stop the peer pruning task
     private func stopPeerPruningTask() {
-        peerPruneTimer?.invalidate()
+        peerPruneTimer.suspend()
     }
     
     /// Create a transaction, sending coins
@@ -448,5 +447,57 @@ extension UserDefaults {
     
     func clear(forKey key: DataStoreKey) {
         set(nil, forKey: key.rawValue)
+    }
+}
+
+
+class RepeatingTimer {
+    let timeInterval: TimeInterval
+    var eventHandler: (() -> Void)?
+    private var state: State = .suspended
+    
+    private enum State {
+        case suspended
+        case resumed
+    }
+    
+    init(timeInterval: TimeInterval) {
+        self.timeInterval = timeInterval
+    }
+    
+    private lazy var timer: DispatchSourceTimer = {
+        let t = DispatchSource.makeTimerSource()
+        t.schedule(deadline: .now() + self.timeInterval, repeating: self.timeInterval)
+        t.setEventHandler(handler: { [weak self] in
+            self?.eventHandler?()
+        })
+        return t
+    }()
+    
+    deinit {
+        timer.setEventHandler {}
+        timer.cancel()
+        /*
+         If the timer is suspended, calling cancel without resuming
+         triggers a crash. This is documented here https://forums.developer.apple.com/thread/15902
+         */
+        resume()
+        eventHandler = nil
+    }
+    
+    func resume() {
+        if state == .resumed {
+            return
+        }
+        state = .resumed
+        timer.resume()
+    }
+    
+    func suspend() {
+        if state == .suspended {
+            return
+        }
+        state = .suspended
+        timer.suspend()
     }
 }
