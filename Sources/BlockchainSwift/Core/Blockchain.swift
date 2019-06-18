@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import os.log
 
 public class Blockchain: Codable {
     // Coin specifics, stolen from Bitcoin
@@ -32,10 +31,10 @@ public class Blockchain: Codable {
     }
     
     /// The blockchain
-    public private(set) var blocks: [Block] = []
+    public var blocks: [Block] = []
     
     /// Proof of Work Algorithm
-    public private(set) var pow = ProofOfWork(difficulty: 3)
+    public var pow = ProofOfWork(difficulty: 3)
     
     /// Unspent Transaction Outputs
     /// - This class keeps track off all current UTXOs, providing a quick lookup for balances and creating new transactions.
@@ -76,11 +75,9 @@ public class Blockchain: Codable {
     /// Updates UTXOs when a new block is added
     /// - Parameter block: The block that has been added, whose transactions we must go through to find the new UTXO state
     public func updateSpendableOutputs(with block: Block) {
-        os_log("pre: %s", type: .debug, utxos.debugDescription)
         for transaction in block.transactions {
             updateSpendableOutputs(with: transaction)
         }
-        os_log("post: %s", type: .debug, utxos.debugDescription)
     }
     
     /// Updates UTXOs when a new block is added
@@ -141,4 +138,15 @@ public class Blockchain: Codable {
         return (sent: sent, received: received)
     }
 
+    /// Calculates the circulating supply
+    /// - At any given block height, the circulating supply is given by the sum of all black rewards up to, and including, that point
+    public func circulatingSupply() -> UInt64 {
+        let blockHeight = UInt64(blocks.count)
+        if blockHeight == 0 {
+            return 0
+        }
+        return (1...blockHeight)
+            .map { Coin.blockReward(at: $0-1) }
+            .reduce(0, +)
+    }
 }

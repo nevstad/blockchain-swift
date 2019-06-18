@@ -88,3 +88,14 @@ public class Wallet {
         return Keygen.copyExternalRepresentation(key: secPrivateKey)
     }
 }
+
+// Helper for attempting to create a Wallet address from (hex) string
+public extension Data {
+    init?(walletAddress: String) {
+        if let data = Data(hex: walletAddress), data.count == 32 {
+            self = data
+        } else {
+            return nil
+        }
+    }
+}

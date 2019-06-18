@@ -13,7 +13,7 @@ public struct NodeAddress: Codable {
 
     public var urlString: String {
         get {
-            return "http://\(host):\(port)"
+            return "\(host):\(port)"
         }
     }
     public var url: URL {
@@ -29,15 +29,20 @@ extension NodeAddress: Equatable {
     }
 }
 
+extension NodeAddress: Hashable {}
+
 extension NodeAddress {
     // For simplicity's sake we hard code the central node address
-    public static func centralAddress() -> NodeAddress {
-        return NodeAddress(host: "localhost", port: 8080)
+    static var centralAddress: NodeAddress = NodeAddress(host: "central.lucidity.network", port: 1337)
+    
+    public static func randomPort() -> UInt32 {
+        return UInt32.random(in: (1338...13337))
     }
     
     public var isCentralNode: Bool {
         get {
-            return self == NodeAddress.centralAddress()
+            return self == NodeAddress.centralAddress
         }
     }
 }
+

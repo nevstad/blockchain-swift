@@ -11,11 +11,12 @@ let package = Package(
             targets: ["BlockchainSwift"]),
     ],
     dependencies: [
+        .package(url: "https://github.com/apple/swift-nio.git", from: "2.0.0")
     ],
     targets: [
         .target(
             name: "BlockchainSwift",
-            dependencies: []),
+            dependencies: ["NIO"]),
         .testTarget(
             name: "BlockchainSwiftTests",
             dependencies: ["BlockchainSwift"]),
