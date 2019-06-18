@@ -100,7 +100,7 @@ public class Node {
         network.start()
         // All nodes must know of the central node, and connect to it (unless self is central node)
         if type == .peer {
-            network.sendVersion(version: 1, blockHeight: self.blockchain.blocks.count, to: NodeAddress.centralAddress)
+            network.sendVersion(version: 1, blockHeight: self.blockchain.currentBlockHeight(), to: NodeAddress.centralAddress)
         } else {
             connected = true
             startPeerPruningTask()
@@ -283,7 +283,7 @@ extension Node: MessageListenerDelegate {
     
     public func didReceiveVersionMessage(_ message: VersionMessage, from: NodeAddress) {
         let localVersion = 1
-        let localBlockHeight = blockchain.blocks.count
+        let localBlockHeight = blockchain.currentBlockHeight()
         
         // Ignore nodes running a different blockchain protocol version
         guard message.version == localVersion else {
@@ -361,8 +361,9 @@ extension Node: MessageListenerDelegate {
     
     public func didReceiveGetBlocksMessage(_ message: GetBlocksMessage, from: NodeAddress) {
         if message.fromBlockHash.isEmpty {
-            network.sendBlocks(blocks: blockchain.blocks, to: from)
-            delegate?.node(self, didSendBlocks: blockchain.blocks)
+            let blocks = blockchain.blocks
+            network.sendBlocks(blocks: blocks, to: from)
+            delegate?.node(self, didSendBlocks: blocks)
         } else if let fromHashIndex = blockchain.blocks.firstIndex(where: { $0.hash == message.fromBlockHash }) {
             let requestedBlocks = Array<Block>(blockchain.blocks[fromHashIndex...])
             network.sendBlocks(blocks: requestedBlocks, to: from)
