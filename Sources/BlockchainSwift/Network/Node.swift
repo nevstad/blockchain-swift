@@ -33,7 +33,7 @@ public class Node {
     public let type: NodeType
     
     /// Local copy of the blockchain
-    public let blockchain = Blockchain()
+    public let blockchain: Blockchain
     
     /// Node network
     public var peers = [NodeAddress]()
@@ -72,8 +72,9 @@ public class Node {
     /// Create a new Node
     /// - Parameter address: This Node's address
     /// - Parameter wallet: This Node's wallet, created if nil
-    public init(type: NodeType = .peer) {
+    public init(type: NodeType = .peer, blockStore: BlockStore) {
         self.type = type
+        blockchain = Blockchain(blockStore: blockStore)
         
         // Setup network
         let port = type == .central ? NodeAddress.centralAddress.port : NodeAddress.randomPort()

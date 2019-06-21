@@ -30,12 +30,16 @@ public class Blockchain {
         }
     }
     
-    /// The blockchain
-    let blockStore: BlockStore = SQLiteBlockStore()
+    /// The chainstate
+    let blockStore: BlockStore
     
-    /// Proof of Work Algorithm
+    /// Proof of Work
     public var pow = ProofOfWork(difficulty: 3)
     
+    
+    init(blockStore: BlockStore) {
+        self.blockStore = blockStore
+    }
     
     /// Returns the last block in the blockchain. Fatal error if we have no blocks.
     public func latestBlockHash() -> Data {
@@ -47,8 +51,14 @@ public class Blockchain {
         return Coin.blockReward(at: UInt64(try! blockStore.blockHeight()))
     }
     
+    /// Get the number of blocks in the chain
     public func currentBlockHeight() -> Int {
         return try! blockStore.blockHeight()
+    }
+    
+    /// Get the mempool, transactions currently added that haven't been mined into a block
+    public func mempool() -> [Transaction] {
+        return try! blockStore.mempool()
     }
     
     /// Create a new block in the chain

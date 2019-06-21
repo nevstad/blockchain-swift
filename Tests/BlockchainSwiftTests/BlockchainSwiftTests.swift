@@ -9,9 +9,6 @@ final class BlockchainSwiftTests: XCTestCase {
     
         // Mock centrla server to be local
         NodeAddress.centralAddress = NodeAddress(host: "localhost", port: 43210)
-        
-        // Mock every instance of the Blockchain to spawn it's own database
-        SQLiteBlockStore.dbDirectoryPath = SQLiteBlockStore.dbDirectoryPath.appendingPathComponent("\(UUID().uuidString)")
     }
     
     class MessageListenerTestDelegate: MessageListenerDelegate {
@@ -29,6 +26,13 @@ final class BlockchainSwiftTests: XCTestCase {
         func didReceiveBlocksMessage(_ message: BlocksMessage, from: NodeAddress) { blocks = message.blocks }
         func didReceivePingMessage(_ message: PingMessage, from: NodeAddress) { ping = true }
         func didReceivePongMessage(_ message: PongMessage, from: NodeAddress) { pong = true }
+    }
+    
+    class MockBlockStore {
+        static func randomBlockStore() -> BlockStore {
+            let path = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0].appendingPathComponent("BlockchainSwift/\(UUID().uuidString)")
+            return SQLiteBlockStore(path: path)
+        }
     }
 
     class MockNetwork {
@@ -131,7 +135,7 @@ final class BlockchainSwiftTests: XCTestCase {
     }
     
     func testWalletFromKeychainAndTxSigning() {
-        let node = Node()
+        let node = Node(blockStore: MockBlockStore.randomBlockStore())
         let wallet1 = Wallet(name: "test", storeInKeychain: true)!
         defer { Keygen.clearKeychainKeys(name: "test") }
         let wallet2 = Wallet(name: "test2", keyPair: Keygen.loadKeyPairFromKeychain(name: "test")!)
@@ -211,7 +215,7 @@ final class BlockchainSwiftTests: XCTestCase {
         let wallet1 = Wallet(name: "Node1Wallet")!
         // Override central address
         NodeAddress.centralAddress = NodeAddress(host: "localhost", port: 1337)
-        let node1 = Node(type: .central)
+        let node1 = Node(type: .central, blockStore: MockBlockStore.randomBlockStore())
         let wallet2 = Wallet(name: "Node2Wallet")!
         let block = try! node1.mineBlock(minerAddress: wallet1.address)
         sleep(1) // Avoid conflics with two coinbase tx with same lock time
@@ -262,15 +266,15 @@ final class BlockchainSwiftTests: XCTestCase {
         let node1Wallet = Wallet(name: "Node1Wallet")!
         // Override central address
         Node.pingInterval = 1000
-        let node1 = Node(type: .central)
+        let node1 = Node(type: .central, blockStore: MockBlockStore.randomBlockStore())
         node1.connect()
         defer { node1.disconnect() }
         let _ = try? node1.mineBlock(minerAddress: node1Wallet.address)
         let node2Wallet = Wallet(name: "Node2Wallet")!
-        let node2 = Node(type: .peer)
+        let node2 = Node(blockStore: MockBlockStore.randomBlockStore())
         node2.connect()
         defer { node2.disconnect() }
-        let node3 = Node(type: .peer)
+        let node3 = Node(blockStore: MockBlockStore.randomBlockStore())
         node3.connect()
         defer { node3.disconnect() }
         DispatchQueue.global().async {
@@ -307,7 +311,7 @@ final class BlockchainSwiftTests: XCTestCase {
         wait(for: [txSync], timeout: 3)
         
         let newNodeTxSync = XCTestExpectation(description: "Sync new node")
-        let node4 = Node(type: .peer)
+        let node4 = Node(blockStore: MockBlockStore.randomBlockStore())
         node4.connect()
         defer { node4.disconnect() }
         DispatchQueue.global().async {
@@ -400,15 +404,15 @@ final class BlockchainSwiftTests: XCTestCase {
     func testNodePingPongPrune() {
         Node.pingInterval = 3
         NodeAddress.centralAddress = NodeAddress(host: "localhost", port: 43210)
-        let central = Node(type: .central)
+        let central = Node(type: .central, blockStore: MockBlockStore.randomBlockStore())
         central.connect()
         defer { central.disconnect() }
         
-        let peer1 = Node(type: .peer)
+        let peer1 = Node(blockStore: MockBlockStore.randomBlockStore())
         peer1.connect()
         defer { peer1.disconnect() }
 
-        let peer2 = Node(type: .peer)
+        let peer2 = Node(blockStore: MockBlockStore.randomBlockStore())
         peer2.connect()
 
         let peerCountExp = XCTestExpectation(description: "Initial peers")

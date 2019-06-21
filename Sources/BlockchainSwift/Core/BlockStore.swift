@@ -38,14 +38,9 @@ public protocol BlockStore {
 public class SQLiteBlockStore: BlockStore {
     private let pool: DatabasePool
 
-    static var dbDirectoryPath = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0].appendingPathComponent("BlockchainSwift/\(UUID().uuidString)")
-    static let dbFilePath = dbDirectoryPath.appendingPathComponent("blockchain.sqlite").absoluteString
 
-    public init() {
-        let dbDirectoryPath = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0].appendingPathComponent("BlockchainSwift/\(UUID().uuidString)")
-        let dbFilePath = dbDirectoryPath.appendingPathComponent("blockchain.sqlite").absoluteString
-        try! FileManager.default.createDirectory(at: dbDirectoryPath, withIntermediateDirectories: true)
-        pool = try! DatabasePool(path: dbFilePath)
+    public init(path: URL) {
+        pool = try! DatabasePool(path: path.absoluteString)
         try! createTables()
     }
     
