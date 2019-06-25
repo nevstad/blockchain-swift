@@ -63,6 +63,7 @@ protocol MessageListener {
     func stop()
 }
 
+@available(iOS 10.0, OSX 10.14, *)
 extension MessageListener {
     mutating func handleMessage(_ message: Message, from: NodeAddress) {
         os_log("Received %s message from %s", type: .error, message.command.description, from.urlString)
@@ -113,6 +114,7 @@ typealias NetworkProvider = MessageSender & MessageListener
 #if canImport(Network)
 import Network
 
+@available(iOS 12.0, OSX 10.14, *)
 public class NWNetwork: NetworkProvider {
     
     private var queue: DispatchQueue
@@ -183,6 +185,7 @@ public class NWNetwork: NetworkProvider {
     }
 }
 
+@available(iOS 12.0, OSX 10.14, *)
 extension NWEndpoint {
     var host: String? {
         if case .hostPort(let host, _) = self {
@@ -190,8 +193,8 @@ extension NWEndpoint {
             case .ipv4(let addr):
                 var output = Data(count: Int(INET_ADDRSTRLEN))
                 var address = addr
-                guard let presentationBytes = output.withUnsafeMutableBytes({
-                    inet_ntop(AF_INET, &address, $0, socklen_t(INET_ADDRSTRLEN))
+                guard let presentationBytes = output.withUnsafeMutableBytes({ bytes in
+                    inet_ntop(AF_INET, &address, bytes, socklen_t(INET_ADDRSTRLEN))
                 }) else {
                     return nil
                 }
@@ -220,6 +223,7 @@ extension NWEndpoint {
 #if canImport(NIO)
 import NIO
 
+@available(iOS 12.0, OSX 10.14, *)
 public class NIONetwork: NetworkProvider {
     private var host: String
     private var port: Int

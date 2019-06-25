@@ -7,11 +7,13 @@
 
 import CoreImage
 
+@available(iOS 10.0, OSX 10.12, *)
 protocol QRCodeConvertible {
     func generateQRCode() -> CIImage?
     var qrCodeString: String { get }
 }
 
+@available(iOS 10.0, OSX 10.12, *)
 extension QRCodeConvertible {
     public func generateQRCode() -> CIImage? {
         guard let qrFilter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
@@ -33,6 +35,7 @@ extension Data: QRCodeConvertible {
     }
 }
 
+@available(iOS 10.0, OSX 10.12, *)
 extension SecKey: QRCodeConvertible {
     var qrCodeString: String {
         return Keygen.copyExternalRepresentation(key: self)!.hex

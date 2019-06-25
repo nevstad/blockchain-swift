@@ -41,6 +41,11 @@ public class Blockchain {
         self.blockStore = blockStore
     }
     
+    /// Get the number of blocks in the chain
+    public func currentBlockHeight() -> Int {
+        return try! blockStore.blockHeight()
+    }
+    
     /// Returns the last block in the blockchain. Fatal error if we have no blocks.
     public func latestBlockHash() -> Data {
         return try! blockStore.latestBlockHash() ?? Data()
@@ -49,11 +54,6 @@ public class Blockchain {
     /// Get the block value, or the block reward, at current block height
     public func currentBlockValue() -> UInt64 {
         return Coin.blockReward(at: UInt64(try! blockStore.blockHeight()))
-    }
-    
-    /// Get the number of blocks in the chain
-    public func currentBlockHeight() -> Int {
-        return try! blockStore.blockHeight()
     }
     
     /// Get the mempool, transactions currently added that haven't been mined into a block
@@ -82,13 +82,13 @@ public class Blockchain {
     
     /// Finds UTXOs for a specified address
     /// - Parameter address: The wallet address whose UTXOs we want to find
-    public func findSpendableOutputs(for address: Data) -> [UnspentTransaction] {
+    public func spendableOutputs(for address: Data) -> [UnspentTransaction] {
         return try! blockStore.unspentTransactions(for: address)
     }
     
     /// Returns the Transaction history for a specified address
     /// - Parameter address: The specifed address
-    public func findTransactions(for address: Data) -> [Payment] {
+    public func payments(for address: Data) -> [Payment] {
         return try! blockStore.payments(address: address)
     }
 

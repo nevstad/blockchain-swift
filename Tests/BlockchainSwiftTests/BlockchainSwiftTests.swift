@@ -2,6 +2,7 @@ import XCTest
 @testable import BlockchainSwift
 import GRDB
 
+@available(iOS 12.0, OSX 10.14, *)
 final class BlockchainSwiftTests: XCTestCase {
     
     override func setUp() {
@@ -251,8 +252,8 @@ final class BlockchainSwiftTests: XCTestCase {
         } catch { }
         
         // Check sanity of utxo state, ensuring Wallet1 and Wallet2 has rights to their unspent outputs
-        let utxosWallet1 = node1.blockchain.findSpendableOutputs(for: wallet1.address)
-        let utxosWallet2 = node1.blockchain.findSpendableOutputs(for: wallet2.address)
+        let utxosWallet1 = node1.blockchain.spendableOutputs(for: wallet1.address)
+        let utxosWallet2 = node1.blockchain.spendableOutputs(for: wallet2.address)
         XCTAssert(wallet1.canUnlock(utxos: utxosWallet1.map { $0.output }))
         XCTAssert(!wallet1.canUnlock(utxos: utxosWallet2.map { $0.output }))
         XCTAssert(wallet2.canUnlock(utxos: utxosWallet2.map { $0.output }))

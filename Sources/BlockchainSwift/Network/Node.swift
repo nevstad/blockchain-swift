@@ -8,6 +8,7 @@
 import Foundation
 import os.log
 
+@available(iOS 12.0, OSX 10.14, *)
 public protocol NodeDelegate {
     func nodeDidConnectToNetwork(_ node: Node)
     func node(_ node: Node, didAddPeer peer: NodeAddress)
@@ -20,7 +21,7 @@ public protocol NodeDelegate {
     func node(_ node: Node, didReceiveBlocks blocks: [Block])
 }
 
-
+@available(iOS 12.0, OSX 10.14, *)
 public class Node {
     /// In our simplistic network, we have _one_ central Node, with an arbitrary amount of Miners / Wallets.
     /// - Central: The hub which all others connect to, and is responsible for syncronizing data accross them. There can only be one.
@@ -178,7 +179,7 @@ public class Node {
         }
         
         // Create a transaction and sign it, making sure first the sender has the right to claim the spendale outputs
-        let spendableOutputs = blockchain.findSpendableOutputs(for: sender.address)
+        let spendableOutputs = blockchain.spendableOutputs(for: sender.address)
         var usedSpendableOutputs = [UnspentTransaction]()
         var spendValue: UInt64 = 0
         for availableSpendableOutput in spendableOutputs {
@@ -195,12 +196,6 @@ public class Node {
         let change = spendValue - value
         
         guard let signedTxIns = try? sender.sign(utxos: usedSpendableOutputs) else { throw TxError.unverifiedTransaction }
-        for (i, txIn) in signedTxIns.enumerated() {
-            let originalOutputData = usedSpendableOutputs[i].outpoint.hash
-            if !Keysign.verify(publicKey: sender.publicKey, data: originalOutputData, signature: txIn.signature) {
-                throw TxError.unverifiedTransaction
-            }
-        }
         
         // Create the transaction with the correct ins and outs
         var txOuts = [TransactionOutput]()
@@ -263,6 +258,7 @@ public class Node {
 }
 
 /// Handle incoming messages from the Node Network
+@available(iOS 12.0, OSX 10.14, *)
 extension Node: MessageListenerDelegate {
     public func didReceivePingMessage(_ message: PingMessage, from: NodeAddress) {}
     public func didReceivePongMessage(_ message: PongMessage, from: NodeAddress) {}
