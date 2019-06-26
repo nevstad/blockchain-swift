@@ -10,9 +10,12 @@ import Foundation
 public class Blockchain {
     // Coin specifics, stolen from Bitcoin
     public enum Coin {
-        static let satoshis: UInt64 = 100_000_000
-        static let subsidy = satoshis / 100
+        static let denomination: UInt64 = 100_000_000
+        static let subsidy = denomination / 100
         static let halvingInterval: UInt64 = 210_000
+        static let denominationName: String = "Lucent"
+        static let coinName: String = "XLC"
+        static let coinLongName: String = "Lucidus"
         
         /// Get the block value, or the block reward, at a specified block height
         /// - Parameter blockHeight: The block height (number of blocks)
@@ -21,12 +24,12 @@ public class Blockchain {
             return subsidy / (1 + halvings)
         }
         
-        static func coinValue(satoshis: UInt64) -> Double {
-            return Double(satoshis) / Double(Coin.satoshis)
+        static func coinValue(denominations: UInt64) -> Double {
+            return Double(denomination) / Double(Coin.denomination)
         }
         
-        static func satoshisValue(coinValue: Double) -> UInt64 {
-            return UInt64(coinValue * Double(Blockchain.Coin.satoshis))
+        static func denominationsValue(coinValue: Double) -> UInt64 {
+            return UInt64(coinValue * Double(Blockchain.Coin.denomination))
         }
     }
     
