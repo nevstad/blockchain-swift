@@ -16,8 +16,8 @@ A Blockchain implementation that loosely mimics Bitcoin's key features.
 
 ## 🚦 Requirements
 
-* ✓ Swift 4.0+
-* ✓ macOS 10.14+, iOS 12.0+, tvOS 12.0+
+* ✓ Swift 5.0+
+* ✓ macOS 10.14+, iOS 12.0+
 
 
 ## 📣 Shoutout
