@@ -91,8 +91,8 @@ public class Blockchain {
     
     /// Returns the Transaction history for a specified address
     /// - Parameter address: The specifed address
-    public func payments(for address: Data) -> [Payment] {
-        return try! blockStore.payments(address: address)
+    public func payments(for publicKey: Data) -> [Payment] {
+        return try! blockStore.payments(publicKey: publicKey)
     }
 
     /// Calculates the circulating supply

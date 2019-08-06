@@ -29,7 +29,7 @@ public protocol BlockStore {
     func blockHeight() throws -> Int
     func addTransaction(_ tx: Transaction) throws
     func mempool() throws -> [Transaction]
-    func payments(address: Data) throws -> [Payment]
+    func payments(publicKey: Data) throws -> [Payment]
     func balance(for address: Data) throws -> UInt64
     func unspentTransactions(for address: Data) throws -> [UnspentTransaction]
 }
@@ -226,23 +226,25 @@ public class SQLiteBlockStore: BlockStore {
         }
     }
     
-    public func payments(address: Data) throws -> [Payment] {
+    public func payments(publicKey: Data) throws -> [Payment] {
         return try pool.read { db -> [Payment] in
-            let sql =
+            let sqlReceived =
                 """
-                SELECT tx.hash, txin.public_key, txout.value, txout.address FROM tx
+                SELECT DISTINCT tx.hash, txin.public_key, txout.value, txout.address FROM tx
                 LEFT JOIN txout ON tx.hash = txout.tx_hash
                 LEFT JOIN txin ON tx.hash = txin.tx_hash
-                WHERE txout.address = ?
+                WHERE txout.address = ? OR txin.public_key = ?
+                ORDER BY lock_time DESC
                 """
-            return try Row.fetchAll(db, sql: sql, arguments: [address]).map { row in
-                let txid: Data = row["hash"]
-                let publicKey: Data = row["public_key"]
-                let from = publicKey.toAddress()
-                let value: UInt64 = row["value"]
-                let address: Data = row["address"]
-                return Payment(state: from == address ? .sent : .received, value: value, from: publicKey.toAddress(), to: address, txId: txid)
-            }
+            return try Row.fetchAll(db, sql: sqlReceived, arguments: [publicKey.toAddress(), publicKey]).map { row in
+                let txId: Data = row["hash"]
+                let txPublicKey: Data = row["public_key"]
+                let txFrom = txPublicKey.toAddress()
+                let txValue: UInt64 = row["value"]
+                let txAddress: Data = row["address"]
+                return Payment(state: txPublicKey == publicKey ? .sent : .received, value: txValue, from: txFrom, to: txAddress, txId: txId)
+                }
+                .filter { $0.from != $0.to } // Removes change outputs (which are sent to self)
         }
     }
     

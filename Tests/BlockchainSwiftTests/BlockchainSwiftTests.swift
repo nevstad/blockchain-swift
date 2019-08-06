@@ -31,8 +31,11 @@ final class BlockchainSwiftTests: XCTestCase {
     
     class MockBlockStore {
         static func randomBlockStore() -> BlockStore {
-            let path = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0].appendingPathComponent("BlockchainSwift/\(UUID().uuidString)")
-            return SQLiteBlockStore(path: path)
+            let dbDirectoryPath = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0].appendingPathComponent("BlockchainSwift/\(UUID().uuidString)")
+            let dbFilePath = dbDirectoryPath.appendingPathComponent("blockchain.sqlite")
+            try! FileManager.default.createDirectory(at: dbDirectoryPath, withIntermediateDirectories: true)
+            print("Mock database: \(dbFilePath.absoluteString)")
+            return SQLiteBlockStore(path: dbFilePath)
         }
     }
 
@@ -258,6 +261,36 @@ final class BlockchainSwiftTests: XCTestCase {
         XCTAssert(!wallet1.canUnlock(utxos: utxosWallet2.map { $0.output }))
         XCTAssert(wallet2.canUnlock(utxos: utxosWallet2.map { $0.output }))
         XCTAssert(!wallet2.canUnlock(utxos: utxosWallet1.map { $0.output }))
+    }
+    
+    func testPayments() {
+        let node = Node(blockStore: MockBlockStore.randomBlockStore())
+        let wallet = Wallet(name: "Rand")!
+        let wallet2 = Wallet(name: "Rand2")!
+        let _ = try! node.mineBlock(minerAddress: wallet.address)
+        let _ = try! node.createTransaction(sender: wallet, recipientAddress: wallet2.address, value: 1)
+        let _ = try! node.createTransaction(sender: wallet, recipientAddress: wallet2.address, value: 1)
+        let _ = try! node.createTransaction(sender: wallet, recipientAddress: wallet2.address, value: 1)
+
+        let w1p = node.blockchain.payments(for: wallet.publicKey)
+        XCTAssert(w1p.count == 4)
+        XCTAssert(w1p.filter({ $0.state == .sent }).count == 3)
+        XCTAssert(w1p.filter { $0.state == .sent }.map { $0.value }.reduce(0, +) == 3)
+        XCTAssert(w1p.filter({ $0.state == .received }).count == 1)
+        XCTAssert(w1p.filter { $0.state == .received }.map { $0.value }.reduce(0, +) == node.blockchain.currentBlockValue())
+        XCTAssert(node.blockchain.balance(for: wallet2.address) == 3)
+        XCTAssert(node.blockchain.balance(for: wallet.address) == node.blockchain.currentBlockValue() - 3)
+
+        var w2p = node.blockchain.payments(for: wallet2.publicKey)
+        XCTAssert(w2p.count == 3)
+        XCTAssert(w2p.filter({ $0.state == .received }).count == 3)
+        XCTAssert(w2p.filter { $0.state == .received }.map { $0.value }.reduce(0, +) == 3)
+
+        let _ = try! node.createTransaction(sender: wallet2, recipientAddress: wallet.address, value: 3)
+        w2p = node.blockchain.payments(for: wallet2.publicKey)
+        XCTAssert(w2p.count == 4)
+        XCTAssert(w2p.filter({ $0.state == .sent }).count == 1)
+        XCTAssert(w2p.filter { $0.state == .sent }.map { $0.value }.reduce(0, +) == 3)
     }
     
     func testNodeNetwork() {
