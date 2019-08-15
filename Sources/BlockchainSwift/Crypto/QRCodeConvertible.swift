@@ -8,14 +8,14 @@
 import CoreImage
 
 @available(iOS 10.0, OSX 10.12, *)
-protocol QRCodeConvertible {
+public protocol QRCodeConvertible {
     func generateQRCode() -> CIImage?
     var qrCodeString: String { get }
 }
 
 @available(iOS 10.0, OSX 10.12, *)
-extension QRCodeConvertible {
-    public func generateQRCode() -> CIImage? {
+public extension QRCodeConvertible {
+    func generateQRCode() -> CIImage? {
         guard let qrFilter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
         qrFilter.setValue(qrCodeString.data(using: .utf8), forKey: "inputMessage")
         qrFilter.setValue("L", forKey: "inputCorrectionLevel")
@@ -37,7 +37,7 @@ extension Data: QRCodeConvertible {
 
 @available(iOS 10.0, OSX 10.12, *)
 extension SecKey: QRCodeConvertible {
-    var qrCodeString: String {
+    public var qrCodeString: String {
         return Keygen.copyExternalRepresentation(key: self)!.hex
     }
 }
