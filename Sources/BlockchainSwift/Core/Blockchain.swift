@@ -25,7 +25,7 @@ public class Blockchain {
         }
         
         public static func coinValue(denominations: UInt64) -> Double {
-            return Double(denomination) / Double(Coin.denomination)
+            return Double(denominations) / Double(Coin.denomination)
         }
         
         public static func denominationsValue(coinValue: Double) -> UInt64 {
