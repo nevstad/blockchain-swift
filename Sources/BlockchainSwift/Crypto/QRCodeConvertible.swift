@@ -17,7 +17,7 @@ public protocol QRCodeConvertible {
 public extension QRCodeConvertible {
     func generateQRCode() -> CIImage? {
         guard let qrFilter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
-        qrFilter.setValue(qrCodeString.data(using: .utf8), forKey: "inputMessage")
+        qrFilter.setValue(qrCodeString.data(using: .ascii), forKey: "inputMessage")
         qrFilter.setValue("L", forKey: "inputCorrectionLevel")
         return qrFilter.outputImage?.transformed(by: CGAffineTransform(scaleX: 10, y: 10))
     }
@@ -31,7 +31,7 @@ extension String: QRCodeConvertible {
 
 extension Data: QRCodeConvertible {
     public var qrCodeString: String {
-        return String(data: self, encoding: .utf8)!
+        return String(data: self, encoding: .ascii)!
     }
 }
 
