@@ -173,13 +173,13 @@ public class Node {
         
         // Calculate transaction value and change, based on the sender's balance and the transaction's value
         // - All utxos for the sender must be spent, and are indivisible.
-        let balance = blockchain.balance(for: sender.address)
+        let balance = blockchain.balance(address: sender.address)
         if value > balance {
             throw TxError.insufficientBalance(overdraft: value.distance(to: balance))
         }
         
         // Create a transaction and sign it, making sure first the sender has the right to claim the spendale outputs
-        let spendableOutputs = blockchain.spendableOutputs(for: sender.address)
+        let spendableOutputs = blockchain.spendableOutputs(address: sender.address)
         var usedSpendableOutputs = [UnspentTransaction]()
         var spendValue: UInt64 = 0
         for availableSpendableOutput in spendableOutputs {

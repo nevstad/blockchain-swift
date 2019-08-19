@@ -228,9 +228,9 @@ final class BlockchainSwiftTests: XCTestCase {
         XCTAssert(node1.blockchain.latestBlockHash() == block.hash)
         
         // Wallet1 has mined genesis block, and should have gotten the reward
-        XCTAssert(node1.blockchain.balance(for: wallet1.address) == node1.blockchain.currentBlockValue())
+        XCTAssert(node1.blockchain.balance(address: wallet1.address) == node1.blockchain.currentBlockValue())
         // Wallet2 is broke
-        XCTAssert(node1.blockchain.balance(for: wallet2.address) == 0)
+        XCTAssert(node1.blockchain.balance(address: wallet2.address) == 0)
         
         // Send 1000 from Wallet1 to Wallet2, and again let wallet1 mine the next block
         let _ = try node1.createTransaction(sender: wallet1, recipientAddress: wallet2.address, value: 1)
@@ -240,11 +240,11 @@ final class BlockchainSwiftTests: XCTestCase {
         XCTAssert(node1.blockchain.currentBlockHeight() == 2)
 
         // Wallet1 should now have a balance == two block rewards - 1
-        let node1Balance = node1.blockchain.balance(for: wallet1.address)
+        let node1Balance = node1.blockchain.balance(address: wallet1.address)
         let expetedNode1Balance = (node1.blockchain.currentBlockValue() * 2) - 1
         XCTAssert(node1Balance == expetedNode1Balance, "\(node1Balance) != \(expetedNode1Balance)")
         // Wallet 2 should have a balance == 1000
-        let node2Balance = node1.blockchain.balance(for: wallet2.address)
+        let node2Balance = node1.blockchain.balance(address: wallet2.address)
         let expectedNode2Balance = 1
         XCTAssert(node2Balance == expectedNode2Balance, "\(node2Balance) != \(expectedNode2Balance)")
         
@@ -255,8 +255,8 @@ final class BlockchainSwiftTests: XCTestCase {
         } catch { }
         
         // Check sanity of utxo state, ensuring Wallet1 and Wallet2 has rights to their unspent outputs
-        let utxosWallet1 = node1.blockchain.spendableOutputs(for: wallet1.address)
-        let utxosWallet2 = node1.blockchain.spendableOutputs(for: wallet2.address)
+        let utxosWallet1 = node1.blockchain.spendableOutputs(address: wallet1.address)
+        let utxosWallet2 = node1.blockchain.spendableOutputs(address: wallet2.address)
         XCTAssert(wallet1.canUnlock(utxos: utxosWallet1.map { $0.output }))
         XCTAssert(!wallet1.canUnlock(utxos: utxosWallet2.map { $0.output }))
         XCTAssert(wallet2.canUnlock(utxos: utxosWallet2.map { $0.output }))
@@ -272,22 +272,22 @@ final class BlockchainSwiftTests: XCTestCase {
         let _ = try! node.createTransaction(sender: wallet, recipientAddress: wallet2.address, value: 1)
         let _ = try! node.createTransaction(sender: wallet, recipientAddress: wallet2.address, value: 1)
 
-        let w1p = node.blockchain.payments(for: wallet.publicKey)
+        let w1p = node.blockchain.payments(publicKey: wallet.publicKey)
         XCTAssert(w1p.count == 4)
         XCTAssert(w1p.filter({ $0.state == .sent }).count == 3)
         XCTAssert(w1p.filter { $0.state == .sent }.map { $0.value }.reduce(0, +) == 3)
         XCTAssert(w1p.filter({ $0.state == .received }).count == 1)
         XCTAssert(w1p.filter { $0.state == .received }.map { $0.value }.reduce(0, +) == node.blockchain.currentBlockValue())
-        XCTAssert(node.blockchain.balance(for: wallet2.address) == 3)
-        XCTAssert(node.blockchain.balance(for: wallet.address) == node.blockchain.currentBlockValue() - 3)
+        XCTAssert(node.blockchain.balance(address: wallet2.address) == 3)
+        XCTAssert(node.blockchain.balance(address: wallet.address) == node.blockchain.currentBlockValue() - 3)
 
-        var w2p = node.blockchain.payments(for: wallet2.publicKey)
+        var w2p = node.blockchain.payments(publicKey: wallet2.publicKey)
         XCTAssert(w2p.count == 3)
         XCTAssert(w2p.filter({ $0.state == .received }).count == 3)
         XCTAssert(w2p.filter { $0.state == .received }.map { $0.value }.reduce(0, +) == 3)
 
         let _ = try! node.createTransaction(sender: wallet2, recipientAddress: wallet.address, value: 3)
-        w2p = node.blockchain.payments(for: wallet2.publicKey)
+        w2p = node.blockchain.payments(publicKey: wallet2.publicKey)
         XCTAssert(w2p.count == 4)
         XCTAssert(w2p.filter({ $0.state == .sent }).count == 1)
         XCTAssert(w2p.filter { $0.state == .sent }.map { $0.value }.reduce(0, +) == 3)
@@ -374,15 +374,15 @@ final class BlockchainSwiftTests: XCTestCase {
                     node3.blockchain.currentBlockHeight() == node4.blockchain.currentBlockHeight(),
                     node4.blockchain.currentBlockHeight() == 2,
                     
-                    node1.blockchain.balance(for: node2Wallet.address) == node2.blockchain.balance(for: node2Wallet.address),
-                    node2.blockchain.balance(for: node2Wallet.address) == node3.blockchain.balance(for: node2Wallet.address),
-                    node3.blockchain.balance(for: node2Wallet.address) == node4.blockchain.balance(for: node2Wallet.address),
-                    node1.blockchain.balance(for: node2Wallet.address) == node1.blockchain.currentBlockValue() + 1,
+                    node1.blockchain.balance(address: node2Wallet.address) == node2.blockchain.balance(address: node2Wallet.address),
+                    node2.blockchain.balance(address: node2Wallet.address) == node3.blockchain.balance(address: node2Wallet.address),
+                    node3.blockchain.balance(address: node2Wallet.address) == node4.blockchain.balance(address: node2Wallet.address),
+                    node1.blockchain.balance(address: node2Wallet.address) == node1.blockchain.currentBlockValue() + 1,
                     
-                    node1.blockchain.balance(for: node1Wallet.address) == node1.blockchain.currentBlockValue() - 1,
-                    node2.blockchain.balance(for: node1Wallet.address) == node2.blockchain.currentBlockValue() - 1,
-                    node3.blockchain.balance(for: node1Wallet.address) == node3.blockchain.currentBlockValue() - 1,
-                    node4.blockchain.balance(for: node1Wallet.address) == node4.blockchain.currentBlockValue() - 1
+                    node1.blockchain.balance(address: node1Wallet.address) == node1.blockchain.currentBlockValue() - 1,
+                    node2.blockchain.balance(address: node1Wallet.address) == node2.blockchain.currentBlockValue() - 1,
+                    node3.blockchain.balance(address: node1Wallet.address) == node3.blockchain.currentBlockValue() - 1,
+                    node4.blockchain.balance(address: node1Wallet.address) == node4.blockchain.currentBlockValue() - 1
                 ]
                 if requirements.allSatisfy({ $0 == true}) {
                     mineSync.fulfill()

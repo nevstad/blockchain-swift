@@ -13,22 +13,22 @@ public class Blockchain {
         static let denomination: UInt64 = 100_000_000
         static let subsidy = denomination / 100
         static let halvingInterval: UInt64 = 210_000
-        static let denominationName: String = "Lucent"
-        static let coinName: String = "XLC"
-        static let coinLongName: String = "Lucidus"
+        public static let denominationName: String = "Lucent"
+        public static let coinName: String = "XLC"
+        public static let coinLongName: String = "Lucidus"
         
         /// Get the block value, or the block reward, at a specified block height
         /// - Parameter blockHeight: The block height (number of blocks)
-        static func blockReward(at blockHeight: UInt64) -> UInt64 {
+        public static func blockReward(at blockHeight: UInt64) -> UInt64 {
             let halvings = blockHeight / halvingInterval
             return subsidy / (1 + halvings)
         }
         
-        static func coinValue(denominations: UInt64) -> Double {
+        public static func coinValue(denominations: UInt64) -> Double {
             return Double(denomination) / Double(Coin.denomination)
         }
         
-        static func denominationsValue(coinValue: Double) -> UInt64 {
+        public static func denominationsValue(coinValue: Double) -> UInt64 {
             return UInt64(coinValue * Double(Blockchain.Coin.denomination))
         }
     }
@@ -79,19 +79,19 @@ public class Blockchain {
     
     /// Returns the balannce for a specified address, defined by the sum of its unspent outputs
     /// - Parameter address: The wallet address whose balance to find
-    public func balance(for address: Data) -> UInt64 {
+    public func balance(address: Data) -> UInt64 {
         return try! blockStore.balance(for: address)
     }
     
     /// Finds UTXOs for a specified address
     /// - Parameter address: The wallet address whose UTXOs we want to find
-    public func spendableOutputs(for address: Data) -> [UnspentTransaction] {
+    public func spendableOutputs(address: Data) -> [UnspentTransaction] {
         return try! blockStore.unspentTransactions(for: address)
     }
     
     /// Returns the Transaction history for a specified address
     /// - Parameter address: The specifed address
-    public func payments(for publicKey: Data) -> [Payment] {
+    public func payments(publicKey: Data) -> [Payment] {
         return try! blockStore.payments(publicKey: publicKey)
     }
 
