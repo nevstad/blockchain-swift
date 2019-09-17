@@ -15,6 +15,7 @@ public struct Payment {
         case received
     }
     
+    public let timestamp: UInt32
     public let state: State
     public let value: UInt64
     public let from: Data
@@ -231,7 +232,7 @@ public class SQLiteBlockStore: BlockStore {
         return try pool.read { db -> [Payment] in
             let sqlReceived =
                 """
-                SELECT DISTINCT tx.block_hash, tx.hash, txin.public_key, txout.value, txout.address FROM tx
+                SELECT DISTINCT tx.block_hash, tx.lock_time, tx.hash, txin.public_key, txout.value, txout.address FROM tx
                 LEFT JOIN txout ON tx.hash = txout.tx_hash
                 LEFT JOIN txin ON tx.hash = txin.tx_hash
                 WHERE txout.address = ? OR txin.public_key = ?
@@ -244,7 +245,8 @@ public class SQLiteBlockStore: BlockStore {
                 let txValue: UInt64 = row["value"]
                 let txAddress: Data = row["address"]
                 let txBlockHash: Data? = row["block_hash"]
-                return Payment(state: txPublicKey == publicKey ? .sent : .received, value: txValue, from: txFrom, to: txAddress, txId: txId, pending: txBlockHash == nil)
+                let txTimestamp: UInt32 = row["lock_time"]
+                return Payment(timestamp: txTimestamp, state: txPublicKey == publicKey ? .sent : .received, value: txValue, from: txFrom, to: txAddress, txId: txId, pending: txBlockHash == nil)
                 }
                 .filter { $0.from != $0.to } // Removes change outputs (which are sent to self)
         }
