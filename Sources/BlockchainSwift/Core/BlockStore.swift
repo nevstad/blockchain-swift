@@ -155,7 +155,7 @@ public class SQLiteBlockStore: BlockStore {
     public func blocks(fromHash: Data? = nil) throws -> [Block] {
         if let hash = fromHash {
             return try pool.read { db -> [Block] in
-                let cursor = try Row.fetchCursor(db, sql: "SELECT * FROM block ORDER BY timestamp DESC")
+                let cursor = try Row.fetchCursor(db, sql: "SELECT * FROM block ORDER BY timestamp ASC")
                 var blocks = [Block]()
                 while let row = try cursor.next() {
                     let b = try block(from: row, db: db)
