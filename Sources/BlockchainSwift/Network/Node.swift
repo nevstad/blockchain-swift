@@ -348,8 +348,8 @@ extension Node: MessageListenerDelegate {
     
     public func didReceiveBlocksMessage(_ message: BlocksMessage, from: NodeAddress) {
         var validBlocks = [Block]()
-        let latestBlockHash = blockchain.latestBlockHash()
         for block in message.blocks {
+            let latestBlockHash = blockchain.latestBlockHash()
             if block.previousHash != latestBlockHash {
                 os_log("Received block whose previous hash doesn't match our latest block hash", type: .debug)
                 continue
