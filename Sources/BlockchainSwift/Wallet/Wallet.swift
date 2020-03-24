@@ -7,7 +7,12 @@
 
 import Foundation
 
-public class Wallet {
+protocol TransactionSigner {
+    func sign(utxos: [UnspentTransaction]) throws -> [TransactionInput]
+    func sign(utxo: UnspentTransaction) throws -> Data
+}
+
+public class Wallet: TransactionSigner {
     /// Key pair
     public let secPrivateKey: SecKey
     public let secPublicKey: SecKey

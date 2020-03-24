@@ -8,6 +8,7 @@
 
 import Foundation
 
+// Unspent transactions are the basis for what Coins any given wallet owns
 public struct UnspentTransaction: Codable {
     public let output: TransactionOutput
     public let outpoint: TransactionOutputReference

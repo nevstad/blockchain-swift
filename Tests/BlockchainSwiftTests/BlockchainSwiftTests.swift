@@ -4,6 +4,13 @@ import GRDB
 
 final class BlockchainSwiftTests: XCTestCase {
     
+    override func setUp() {
+        super.setUp()
+    
+        // Mock centrla server to be local
+        NodeAddress.centralAddress = NodeAddress(host: "localhost", port: 43210)
+    }
+    
     class MessageListenerTestDelegate: MessageListenerDelegate {
         var version: Bool = false
         var transactions: [Transaction] = []
@@ -19,6 +26,13 @@ final class BlockchainSwiftTests: XCTestCase {
         func didReceiveBlocksMessage(_ message: BlocksMessage, from: NodeAddress) { blocks = message.blocks }
         func didReceivePingMessage(_ message: PingMessage, from: NodeAddress) { ping = true }
         func didReceivePongMessage(_ message: PongMessage, from: NodeAddress) { pong = true }
+    }
+    
+    class MockBlockStore {
+        static func randomBlockStore() -> BlockStore {
+            let path = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0].appendingPathComponent("BlockchainSwift/\(UUID().uuidString)")
+            return SQLiteBlockStore(path: path)
+        }
     }
 
     class MockNetwork {
@@ -121,16 +135,22 @@ final class BlockchainSwiftTests: XCTestCase {
     }
     
     func testWalletFromKeychainAndTxSigning() {
-        let node = Node()
+        let node = Node(blockStore: MockBlockStore.randomBlockStore())
         let wallet1 = Wallet(name: "test", storeInKeychain: true)!
         defer { Keygen.clearKeychainKeys(name: "test") }
         let wallet2 = Wallet(name: "test2", keyPair: Keygen.loadKeyPairFromKeychain(name: "test")!)
         let wallet3 = Wallet(name: "test3")!
         let _ = try? node.mineBlock(minerAddress: wallet1.address)
-        let tx1 = try? node.createTransaction(sender: wallet1, recipientAddress: wallet3.address, value: 1)
-        let tx2 = try? node.createTransaction(sender: wallet2, recipientAddress: wallet3.address, value: 1)
-        XCTAssert(tx1 != nil, "Could not create tx with original wallet")
-        XCTAssert(tx2 != nil, "Could not create tx with restored wallet")
+        do {
+            try node.createTransaction(sender: wallet1, recipientAddress: wallet3.address, value: 1)
+        } catch {
+            XCTFail(error.localizedDescription)
+        }
+        do {
+            try node.createTransaction(sender: wallet2, recipientAddress: wallet3.address, value: 1)
+        } catch {
+            XCTFail(error.localizedDescription)
+        }
     }
     
     func testKeyRestoreFromDataAndTxSigning() {
@@ -195,9 +215,13 @@ final class BlockchainSwiftTests: XCTestCase {
         let wallet1 = Wallet(name: "Node1Wallet")!
         // Override central address
         NodeAddress.centralAddress = NodeAddress(host: "localhost", port: 1337)
-        let node1 = Node(type: .central)
+        let node1 = Node(type: .central, blockStore: MockBlockStore.randomBlockStore())
         let wallet2 = Wallet(name: "Node2Wallet")!
-        let _ = try? node1.mineBlock(minerAddress: wallet1.address)
+        let block = try! node1.mineBlock(minerAddress: wallet1.address)
+        sleep(1) // Avoid conflics with two coinbase tx with same lock time
+
+        XCTAssert(node1.blockchain.currentBlockHeight() == 1)
+        XCTAssert(node1.blockchain.latestBlockHash() == block.hash)
         
         // Wallet1 has mined genesis block, and should have gotten the reward
         XCTAssert(node1.blockchain.balance(for: wallet1.address) == node1.blockchain.currentBlockValue())
@@ -206,11 +230,12 @@ final class BlockchainSwiftTests: XCTestCase {
         
         // Send 1000 from Wallet1 to Wallet2, and again let wallet1 mine the next block
         let _ = try node1.createTransaction(sender: wallet1, recipientAddress: wallet2.address, value: 1)
-        XCTAssert(node1.mempool.count == 1) // One Tx should be in the pool, ready to go into the next block when mined
+        XCTAssert(try! node1.blockchain.blockStore.mempool().count == 1) // One Tx should be in the pool, ready to go into the next block when mined
         let _ = try? node1.mineBlock(minerAddress: wallet1.address)
-        XCTAssert(node1.mempool.count == 0) // Tx pool should now be clear
-        
-        // Wallet1 should now have a balance == two block rewards - 1000
+        XCTAssert(try! node1.blockchain.blockStore.mempool().count == 0) // Tx pool should now be clear
+        XCTAssert(node1.blockchain.currentBlockHeight() == 2)
+
+        // Wallet1 should now have a balance == two block rewards - 1
         let node1Balance = node1.blockchain.balance(for: wallet1.address)
         let expetedNode1Balance = (node1.blockchain.currentBlockValue() * 2) - 1
         XCTAssert(node1Balance == expetedNode1Balance, "\(node1Balance) != \(expetedNode1Balance)")
@@ -221,7 +246,7 @@ final class BlockchainSwiftTests: XCTestCase {
         
         // Attempt to send more from Wallet1 than it currently has, expect failure
         do {
-            let _ = try node1.createTransaction(sender: wallet1, recipientAddress: wallet2.address, value: UInt64.max)
+            let _ = try node1.createTransaction(sender: wallet1, recipientAddress: wallet2.address, value: UInt64(Int.max))
             XCTAssert(false, "Overdraft")
         } catch { }
         
@@ -240,21 +265,21 @@ final class BlockchainSwiftTests: XCTestCase {
         let initialSync = XCTestExpectation(description: "Initial sync")
         let node1Wallet = Wallet(name: "Node1Wallet")!
         // Override central address
-        NodeAddress.centralAddress = NodeAddress(host: "localhost", port: 43210)
-        let node1 = Node(type: .central)
+        Node.pingInterval = 1000
+        let node1 = Node(type: .central, blockStore: MockBlockStore.randomBlockStore())
         node1.connect()
         defer { node1.disconnect() }
         let _ = try? node1.mineBlock(minerAddress: node1Wallet.address)
         let node2Wallet = Wallet(name: "Node2Wallet")!
-        let node2 = Node(type: .peer)
+        let node2 = Node(blockStore: MockBlockStore.randomBlockStore())
         node2.connect()
         defer { node2.disconnect() }
-        let node3 = Node(type: .peer)
+        let node3 = Node(blockStore: MockBlockStore.randomBlockStore())
         node3.connect()
         defer { node3.disconnect() }
         DispatchQueue.global().async {
             while true {
-                if node2.blockchain.blocks.count == 1 && node3.blockchain.blocks.count == 1 {
+                if node2.blockchain.currentBlockHeight() == 1 && node3.blockchain.currentBlockHeight() == 1 {
                     initialSync.fulfill()
                     break
                 }
@@ -273,9 +298,9 @@ final class BlockchainSwiftTests: XCTestCase {
         DispatchQueue.global().async {
             while true {
                 let requirements = [
-                    node1.mempool.count == node2.mempool.count,
-                    node2.mempool.count == node3.mempool.count,
-                    node3.mempool.count == 1
+                    (try! node1.blockchain.blockStore.mempool()).count == (try! node2.blockchain.blockStore.mempool()).count,
+                    (try! node2.blockchain.blockStore.mempool()).count == (try! node3.blockchain.blockStore.mempool()).count,
+                    (try! node3.blockchain.blockStore.mempool()).count == 1
                 ]
                 if requirements.allSatisfy({ $0 == true}) {
                     txSync.fulfill()
@@ -286,14 +311,14 @@ final class BlockchainSwiftTests: XCTestCase {
         wait(for: [txSync], timeout: 3)
         
         let newNodeTxSync = XCTestExpectation(description: "Sync new node")
-        let node4 = Node(type: .peer)
+        let node4 = Node(blockStore: MockBlockStore.randomBlockStore())
         node4.connect()
         defer { node4.disconnect() }
         DispatchQueue.global().async {
             while true {
                 let requirements = [
-                    node4.mempool.count == node1.mempool.count,
-                    node4.blockchain.blocks.count == node1.blockchain.blocks.count
+                    (try! node4.blockchain.blockStore.mempool()).count == (try! node1.blockchain.blockStore.mempool()).count,
+                    node4.blockchain.currentBlockHeight() == node1.blockchain.currentBlockHeight()
                 ]
                 if requirements.allSatisfy({ $0 == true}) {
                     newNodeTxSync.fulfill()
@@ -310,10 +335,10 @@ final class BlockchainSwiftTests: XCTestCase {
         DispatchQueue.global().async {
             while true {
                 let requirements = [
-                    node1.blockchain.blocks.count == node2.blockchain.blocks.count,
-                    node2.blockchain.blocks.count == node3.blockchain.blocks.count,
-                    node3.blockchain.blocks.count == node4.blockchain.blocks.count,
-                    node4.blockchain.blocks.count == 2,
+                    node1.blockchain.currentBlockHeight() == node2.blockchain.currentBlockHeight(),
+                    node2.blockchain.currentBlockHeight() == node3.blockchain.currentBlockHeight(),
+                    node3.blockchain.currentBlockHeight() == node4.blockchain.currentBlockHeight(),
+                    node4.blockchain.currentBlockHeight() == 2,
                     
                     node1.blockchain.balance(for: node2Wallet.address) == node2.blockchain.balance(for: node2Wallet.address),
                     node2.blockchain.balance(for: node2Wallet.address) == node3.blockchain.balance(for: node2Wallet.address),
@@ -379,15 +404,15 @@ final class BlockchainSwiftTests: XCTestCase {
     func testNodePingPongPrune() {
         Node.pingInterval = 3
         NodeAddress.centralAddress = NodeAddress(host: "localhost", port: 43210)
-        let central = Node(type: .central)
+        let central = Node(type: .central, blockStore: MockBlockStore.randomBlockStore())
         central.connect()
         defer { central.disconnect() }
         
-        let peer1 = Node(type: .peer)
+        let peer1 = Node(blockStore: MockBlockStore.randomBlockStore())
         peer1.connect()
         defer { peer1.disconnect() }
 
-        let peer2 = Node(type: .peer)
+        let peer2 = Node(blockStore: MockBlockStore.randomBlockStore())
         peer2.connect()
 
         let peerCountExp = XCTestExpectation(description: "Initial peers")
@@ -414,41 +439,6 @@ final class BlockchainSwiftTests: XCTestCase {
         wait(for: [peerCountExp2], timeout: Node.pingInterval * 5)
     }
     
-    func testNodeStatePersistence() {
-        // Create a Node, mine a block, and add a transaction - then persist it's state
-        let node = Node()
-        let wallet = Wallet(name: "Wallet")!
-        let _ = try? node.mineBlock(minerAddress: wallet.address)
-        let _ = try? node.createTransaction(sender: wallet, recipientAddress: wallet.address, value: 1000)
-        node.saveState()
-        let state = Node.loadState()
-        guard
-            let stateBlockCount = state.blockchain?.blocks.count,
-            let stateMempoolCount = state.mempool?.count
-            else {
-                XCTFail("State load failed")
-                return
-        }
-        XCTAssert(stateBlockCount == node.blockchain.blocks.count)
-        XCTAssert(stateMempoolCount == node.mempool.count)
-        node.clearState()
-    }
-    
-    func testCirculatingSupply() {
-        let blockchain = Blockchain()
-        XCTAssert(blockchain.circulatingSupply() == 0)
-        (1...1_000_000).forEach { i in
-            let block = Block(timestamp: 0, transactions: [Transaction.coinbase(address: Data(), blockValue: blockchain.currentBlockValue())], nonce: 0, hash: Data(), previousHash: Data())
-            blockchain.blocks.append(block)
-        }
-        let expectedCirculatingSupply =
-            blockchain.blocks
-                .map { $0.transactions.first! }
-                .map { $0.outputs.first!.value }
-                .reduce(0, +)
-        XCTAssert(expectedCirculatingSupply == blockchain.circulatingSupply())
-    }
-    
     
     static let allTests = [
         ("testKeyGenAndTxSigning", testKeyGenAndTxSigning),
@@ -461,10 +451,6 @@ final class BlockchainSwiftTests: XCTestCase {
         ("testTransactions", testTransactions),
         ("testNodeNetwork", testNodeNetwork),
         ("testNetworkPingPong", testNetworkPingPong),
-        ("testNodePingPongPrune", testNodePingPongPrune),
-        ("testNodeStatePersistence", testNodeStatePersistence),
-        ("testCirculatingSupply", testCirculatingSupply)
+        ("testNodePingPongPrune", testNodePingPongPrune)
     ]
-    
 }
-
