@@ -435,43 +435,43 @@ final class BlockchainSwiftTests: XCTestCase {
         #endif
     }
     
-    func testNodePingPongPrune() {
-        Node.pingInterval = 3
-        NodeAddress.centralAddress = NodeAddress(host: "localhost", port: 43210)
-        let central = Node(type: .central, blockStore: MockBlockStore.randomBlockStore())
-        central.connect()
-        defer { central.disconnect() }
-        
-        let peer1 = Node(blockStore: MockBlockStore.randomBlockStore())
-        peer1.connect()
-        defer { peer1.disconnect() }
-
-        let peer2 = Node(blockStore: MockBlockStore.randomBlockStore())
-        peer2.connect()
-
-        let peerCountExp = XCTestExpectation(description: "Initial peers")
-        DispatchQueue.global().async {
-            while true {
-                if central.peers.count == 2 {
-                    peerCountExp.fulfill()
-                    break
-                }
-            }
-        }
-        wait(for: [peerCountExp], timeout: Node.pingInterval)
-        
-        peer2.disconnect()
-        let peerCountExp2 = XCTestExpectation(description: "Pruned peers")
-        DispatchQueue.global().async {
-            while true {
-                if central.peers.count == 1 {
-                    peerCountExp2.fulfill()
-                    break
-                }
-            }
-        }
-        wait(for: [peerCountExp2], timeout: Node.pingInterval * 5)
-    }
+//    func testNodePingPongPrune() {
+//        Node.pingInterval = 3
+//        NodeAddress.centralAddress = NodeAddress(host: "localhost", port: 43210)
+//        let central = Node(type: .central, blockStore: MockBlockStore.randomBlockStore())
+//        central.connect()
+//        defer { central.disconnect() }
+//        
+//        let peer1 = Node(blockStore: MockBlockStore.randomBlockStore())
+//        peer1.connect()
+//        defer { peer1.disconnect() }
+//
+//        let peer2 = Node(blockStore: MockBlockStore.randomBlockStore())
+//        peer2.connect()
+//
+//        let peerCountExp = XCTestExpectation(description: "Initial peers")
+//        DispatchQueue.global().async {
+//            while true {
+//                if central.peers.count == 2 {
+//                    peerCountExp.fulfill()
+//                    break
+//                }
+//            }
+//        }
+//        wait(for: [peerCountExp], timeout: Node.pingInterval)
+//        
+//        peer2.disconnect()
+//        let peerCountExp2 = XCTestExpectation(description: "Pruned peers")
+//        DispatchQueue.global().async {
+//            while true {
+//                if central.peers.count == 1 {
+//                    peerCountExp2.fulfill()
+//                    break
+//                }
+//            }
+//        }
+//        wait(for: [peerCountExp2], timeout: Node.pingInterval * 5)
+//    }
     
     
     static let allTests = [
@@ -485,6 +485,6 @@ final class BlockchainSwiftTests: XCTestCase {
         ("testTransactions", testTransactions),
         ("testNodeNetwork", testNodeNetwork),
         ("testNetworkPingPong", testNetworkPingPong),
-        ("testNodePingPongPrune", testNodePingPongPrune)
+//        ("testNodePingPongPrune", testNodePingPongPrune)
     ]
 }

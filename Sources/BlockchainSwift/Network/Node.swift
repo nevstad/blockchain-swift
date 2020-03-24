@@ -10,7 +10,7 @@ import os.log
 
 @available(iOS 12.0, OSX 10.14, *)
 public protocol NodeDelegate {
-    func nodeDidConnectToNetwork(_ node: Node)
+    func node(_ node: Node, didConnect success: Bool, error: Error?)
     func node(_ node: Node, didAddPeer peer: NodeAddress)
     func node(_ node: Node, didRemovePeer peer: NodeAddress)
     func node(_ node: Node, didCreateTransactions transactions: [Transaction])
@@ -45,12 +45,12 @@ public class Node {
     
     /// Delegate
     public var delegate: NodeDelegate?
-    private var connected = false {
-        didSet {
-            if !oldValue {
-                delegate?.nodeDidConnectToNetwork(self)
-            }
-        }
+    private var connected = false
+    
+    /// Errors that can occur when Note connects to the blockchain node network
+    public enum ConnectionError: Error {
+        case centralNotFound
+        case blockchainOutOfSync
     }
     
     /// Transaction error types
@@ -100,12 +100,15 @@ public class Node {
             network.sendVersion(version: 1, blockHeight: self.blockchain.currentBlockHeight(), to: NodeAddress.centralAddress)
         } else {
             connected = true
-            startPeerPruningTask()
+            delegate?.node(self, didConnect: true, error: nil)
+//            startPeerPruningTask()
         }
     }
     
     /// Disconnect from the Node network
     public func disconnect() {
+        connected = false
+        delegate?.node(self, didConnect: false, error: nil)
         network.stop()
         stopPeerPruningTask()
     }
@@ -288,7 +291,10 @@ extension Node: MessageListenerDelegate {
         
         // If we have the longer chain, or same length, consider ourselves connected
         if localBlockHeight >= message.blockHeight {
-            connected = true
+            if !connected {
+                connected = true
+                delegate?.node(self, didConnect: true, error: nil)
+            }
         }
         
         // Central node is responsible for keeping track of all other nodes and dispatching messages between them
@@ -364,13 +370,23 @@ extension Node: MessageListenerDelegate {
         }
         
         delegate?.node(self, didReceiveBlocks: validBlocks)
-        connected = true
         
         // Central node is responsible for distributing the new blocks (nodes will handle verification internally)
         if case .central = type {
             if !validBlocks.isEmpty {
                 for node in peers.filter({ $0 != from })  {
                     network.sendBlocks(blocks: message.blocks, to: node)
+                }
+            }
+        } else {
+            // Other nodes manage their connected state based on the process of receiving blocks from central if it has a longer chain
+            if !connected {
+                if validBlocks.count == message.blocks.count {
+                    connected = true
+                    delegate?.node(self, didConnect: true, error: nil)
+                } else {
+                    connected = false
+                    delegate?.node(self, didConnect: false, error: ConnectionError.blockchainOutOfSync)
                 }
             }
         }
