@@ -63,7 +63,7 @@ protocol MessageListener {
     func stop()
 }
 
-@available(iOS 10.0, OSX 10.14, *)
+@available(iOS 12.0, OSX 10.14, *)
 extension MessageListener {
     mutating func handleMessage(_ message: Message, from: NodeAddress) {
         os_log("Received %s message from %s", type: .error, message.command.description, from.urlString)

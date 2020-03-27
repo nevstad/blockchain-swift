@@ -7,7 +7,7 @@
 
 import Foundation
 
-@available(iOS 10.0, OSX 10.12, *)
+@available(iOS 12.0, OSX 10.14, *)
 public class Wallet {
     /// Key pair
     public let secPrivateKey: SecKey

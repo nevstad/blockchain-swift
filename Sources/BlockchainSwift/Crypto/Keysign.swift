@@ -8,7 +8,7 @@
 import Foundation
 import os.log
 
-@available(iOS 10.0, OSX 10.12, *)
+@available(iOS 12.0, OSX 10.14, *)
 final class Keysign {
     /// Create a signature of the specified data using the specified private key
     /// - Parameter data: The data to sign

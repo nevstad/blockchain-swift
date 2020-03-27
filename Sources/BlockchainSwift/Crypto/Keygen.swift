@@ -10,7 +10,7 @@ import os.log
 
 public typealias KeyPair = (privateKey: SecKey, publicKey: SecKey)
 
-@available(iOS 10.0, OSX 10.12, *)
+@available(iOS 12.0, OSX 10.14, *)
 public final class Keygen {
     private static let keychainLabelPrefix = "BlockchainSwift Wallet: "
     private static let keychainAppTagPublic = "BlockchainSwift Public Key".data(using: .utf8)!
