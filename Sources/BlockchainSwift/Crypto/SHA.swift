@@ -11,13 +11,11 @@ import CommonCrypto
 extension Data {
     /// SHA-256 encodes a hash of `self`
     func sha256() -> Data {
-        var digest = Data(count: Int(CC_SHA256_DIGEST_LENGTH))
-        _ = digest.withUnsafeMutableBytes { (digestBytes) in
-            withUnsafeBytes { (stringBytes) in
-                CC_SHA256(stringBytes, CC_LONG(count), digestBytes)
-            }
+        var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+        withUnsafeBytes {
+            _ = CC_SHA256($0.baseAddress, CC_LONG(count), &hash)
         }
-        return digest
+        return Data(hash)
     }
     
     func toAddress() -> Data {

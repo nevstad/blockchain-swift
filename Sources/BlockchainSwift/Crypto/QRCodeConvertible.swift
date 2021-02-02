@@ -5,36 +5,43 @@
 //  Created by Magnus Nevstad on 05/05/2019.
 //
 
+#if canImport(CoreImage)
 import CoreImage
 
-protocol QRCodeConvertible {
+@available(iOS 12.0, OSX 10.14, *)
+public protocol QRCodeConvertible {
     func generateQRCode() -> CIImage?
-    var qrCodeString: String { get }
+    var qrCode: Data? { get }
 }
 
-extension QRCodeConvertible {
-    public func generateQRCode() -> CIImage? {
+@available(iOS 12.0, OSX 10.14, *)
+public extension QRCodeConvertible {
+    func generateQRCode() -> CIImage? {
         guard let qrFilter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
-        qrFilter.setValue(qrCodeString.data(using: .utf8), forKey: "inputMessage")
+        qrFilter.setValue(qrCode, forKey: "inputMessage")
         qrFilter.setValue("L", forKey: "inputCorrectionLevel")
         return qrFilter.outputImage?.transformed(by: CGAffineTransform(scaleX: 10, y: 10))
     }
 }
 
+@available(iOS 12.0, OSX 10.14, *)
 extension String: QRCodeConvertible {
-    public var qrCodeString: String {
+    public var qrCode: Data? {
+        return self.data(using: .ascii)
+    }
+}
+
+@available(iOS 12.0, OSX 10.14, *)
+extension Data: QRCodeConvertible {
+    public var qrCode: Data? {
         return self
     }
 }
 
-extension Data: QRCodeConvertible {
-    public var qrCodeString: String {
-        return String(data: self, encoding: .utf8)!
-    }
-}
-
+@available(iOS 12.0, OSX 10.14, *)
 extension SecKey: QRCodeConvertible {
-    var qrCodeString: String {
-        return Keygen.copyExternalRepresentation(key: self)!.hex
+    public var qrCode: Data? {
+        return Keygen.copyExternalRepresentation(key: self)?.hex.qrCode
     }
 }
+#endif

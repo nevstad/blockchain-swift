@@ -11,7 +11,7 @@ public struct TransactionOutput: Codable, Serializable {
     /// Transaction value
     public let value: UInt64
     
-    // The public key hash of the receiver, for claiming output
+    /// The public key hash of the receiver, for claiming output
     public let address: Data
     
     public var hash: Data {

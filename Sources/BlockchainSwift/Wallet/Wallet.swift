@@ -7,6 +7,7 @@
 
 import Foundation
 
+@available(iOS 12.0, OSX 10.14, *)
 public class Wallet {
     /// Key pair
     public let secPrivateKey: SecKey
@@ -40,8 +41,8 @@ public class Wallet {
 
     /// Initalizes a Wallet with keys restored from private key data
     /// - Parameter privateKeyData: The private key data
-    public convenience init?(name: String, privateKeyData: Data, storeInKeychain: Bool = false) {
-        if let keyPair = Keygen.generateKeyPair(name: name, privateKeyData: privateKeyData, storeInKeychain: storeInKeychain) {
+    public convenience init?(name: String, privateKeyData: Data) {
+        if let keyPair = Keygen.generateKeyPair(name: name, privateKeyData: privateKeyData) {
             self.init(name: name, keyPair: keyPair)
         } else {
             return nil
@@ -50,8 +51,8 @@ public class Wallet {
 
     /// Initalizes a Wallet with keys restored from private key hex
     /// - Parameter privateKeyHex: The private key hex
-    public convenience init?(name: String, privateKeyHex: String, storeInKeychain: Bool = false) {
-        if let keyPair = Keygen.generateKeyPair(name: name, privateKeyHex: privateKeyHex, storeInKeychain: storeInKeychain) {
+    public convenience init?(name: String, privateKeyHex: String) {
+        if let keyPair = Keygen.generateKeyPair(name: name, privateKeyHex: privateKeyHex) {
             self.init(name: name, keyPair: keyPair)
         } else {
             return nil

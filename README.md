@@ -5,7 +5,7 @@ A Blockchain implementation that loosely mimics Bitcoin's key features.
 ## ✅ Features
 
 * 🎭 Secure and Anonymous Wallets
-* 🔐 Verified Transations
+* 🔐 Verified Transactions
 * 🛠 Proof-of-Work System
 * 🌐 Simple Decentralization
 * 🗄 Persistent state
@@ -13,12 +13,11 @@ A Blockchain implementation that loosely mimics Bitcoin's key features.
 ## ⛔️ Missing features: 
 
 * 🌐 P2P Decentralization
-* 🗄 Advanced Persistence
 
 ## 🚦 Requirements
 
-* ✓ Swift 4.0+
-* ✓ macOS 10.14+, iOS 12.0+, tvOS 12.0+
+* ✓ Swift 5.0+
+* ✓ macOS 10.14+, iOS 12.0+
 
 
 ## 📣 Shoutout

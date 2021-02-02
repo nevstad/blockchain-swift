@@ -40,25 +40,15 @@ public struct ProofOfWork: Codable {
     /// - Returns: A valid SHA-256 hash & nonce after success, invalid SHA-256 hash & nonce if unsuccessful avter Int.max tries
     public func work(prevHash: Data, timestamp: UInt32, transactions: [Transaction]) -> (hash: Data, nonce: UInt32) {
         var nonce: UInt32 = 0
-        var hash = prepareData(prevHash: prevHash, nonce: nonce, timestamp: timestamp, transactions: transactions).sha256()
+        var hash = Block(timestamp: timestamp, transactions: transactions, nonce: nonce, hash: Data(), previousHash: prevHash).serialized().sha256()
         while nonce < Int.max {
             if validate(hash: hash) {
                 break
             }
             nonce += 1
-            hash = prepareData(prevHash: prevHash, nonce: nonce, timestamp: timestamp, transactions: transactions).sha256()
+            hash = Block(timestamp: timestamp, transactions: transactions, nonce: nonce, hash: Data(), previousHash: prevHash).serialized().sha256()
         }
         return (hash: hash, nonce: nonce)
-    }
-    
-    /// Builds data based on a previousHash, nonce and Block data, to be used for generating hashes
-    public func prepareData(prevHash: Data, nonce: UInt32, timestamp: UInt32, transactions: [Transaction]) -> Data {
-        var data = Data()
-        data += prevHash
-        data += nonce
-        data += timestamp
-        data += transactions.flatMap({ $0.serialized() })
-        return data
     }
     
     /// Validates that a block was mined correctly according to the PoW Algorithm
@@ -66,9 +56,7 @@ public struct ProofOfWork: Codable {
     /// - Parameter block: The Block to validate
     /// - Returns: `true` if the block is valid, ie. PoW completed
     public func validate(block: Block, previousHash: Data) -> Bool {
-        let data = prepareData(prevHash: previousHash, nonce: block.nonce, timestamp: block.timestamp, transactions: block.transactions)
-        let hash = data.sha256()
-        return validate(hash: hash)
+        return validate(hash: block.serialized().sha256())
     }
     
     /// Validates that a hash has passed the requirement of the correct number of starting 0s

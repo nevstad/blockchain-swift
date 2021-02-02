@@ -65,15 +65,4 @@ extension Transaction: CustomStringConvertible {
         let outs = "outs: (\(outputs.map { "\($0.value) -> \($0.address.readableHex)" }.joined(separator: ", ")))"
         return "Transaction (id: \(Data(txHash.reversed()).readableHex), \(ins), \(outs))"
     }
-    
-    public func summary() -> (from: Data, to: Data, amount: UInt64, change: UInt64) {
-        let from = isCoinbase ? Data() : inputs.first!.publicKey.toAddress()
-        let fromOutput = outputs.filter { $0.address == from }.first
-        let toOutput = outputs.filter { $0.address != from }.first!
-        let to = toOutput.address
-        let amount = toOutput.value
-        let change = fromOutput?.value ?? 0
-        return (from: from, to: to, amount: amount, change: change)
-    }
 }
-

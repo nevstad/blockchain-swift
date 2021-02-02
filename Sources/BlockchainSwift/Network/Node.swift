@@ -8,8 +8,9 @@
 import Foundation
 import os.log
 
+@available(iOS 12.0, OSX 10.14, *)
 public protocol NodeDelegate {
-    func nodeDidConnectToNetwork(_ node: Node)
+    func node(_ node: Node, didConnect success: Bool, error: Error?)
     func node(_ node: Node, didAddPeer peer: NodeAddress)
     func node(_ node: Node, didRemovePeer peer: NodeAddress)
     func node(_ node: Node, didCreateTransactions transactions: [Transaction])
@@ -20,7 +21,7 @@ public protocol NodeDelegate {
     func node(_ node: Node, didReceiveBlocks blocks: [Block])
 }
 
-
+@available(iOS 12.0, OSX 10.14, *)
 public class Node {
     /// In our simplistic network, we have _one_ central Node, with an arbitrary amount of Miners / Wallets.
     /// - Central: The hub which all others connect to, and is responsible for syncronizing data accross them. There can only be one.
@@ -35,9 +36,6 @@ public class Node {
     /// Local copy of the blockchain
     public let blockchain: Blockchain
     
-    /// Transaction pool holds all transactions to go into the next block
-    public var mempool: [Transaction]
-    
     /// Node network
     public var peers = [NodeAddress]()
     private var peersLastSeen = [NodeAddress: Date]()
@@ -47,19 +45,19 @@ public class Node {
     
     /// Delegate
     public var delegate: NodeDelegate?
-    private var connected = false {
-        didSet {
-            if !oldValue {
-                delegate?.nodeDidConnectToNetwork(self)
-            }
-        }
+    private var connected = false
+    
+    /// Errors that can occur when Note connects to the blockchain node network
+    public enum ConnectionError: Error {
+        case centralNotFound
+        case blockchainOutOfSync
     }
     
     /// Transaction error types
     public enum TxError: Error {
         case sourceEqualDestination
         case invalidValue
-        case insufficientBalance
+        case insufficientBalance(overdraft: Int)
         case unverifiedTransaction
     }
     
@@ -75,10 +73,9 @@ public class Node {
     /// Create a new Node
     /// - Parameter address: This Node's address
     /// - Parameter wallet: This Node's wallet, created if nil
-    public init(type: NodeType = .peer, blockchain: Blockchain? = nil, mempool: [Transaction]? = nil) {
+    public init(type: NodeType = .peer, blockStore: BlockStore) {
         self.type = type
-        self.blockchain = blockchain ?? Blockchain()
-        self.mempool = mempool ?? [Transaction]()
+        blockchain = Blockchain(blockStore: blockStore)
         
         // Setup network
         let port = type == .central ? NodeAddress.centralAddress.port : NodeAddress.randomPort()
@@ -100,15 +97,18 @@ public class Node {
         network.start()
         // All nodes must know of the central node, and connect to it (unless self is central node)
         if type == .peer {
-            network.sendVersion(version: 1, blockHeight: self.blockchain.blocks.count, to: NodeAddress.centralAddress)
+            network.sendVersion(version: 1, blockHeight: self.blockchain.currentBlockHeight(), to: NodeAddress.centralAddress)
         } else {
             connected = true
-            startPeerPruningTask()
+            delegate?.node(self, didConnect: true, error: nil)
+//            startPeerPruningTask()
         }
     }
     
     /// Disconnect from the Node network
     public func disconnect() {
+        connected = false
+        delegate?.node(self, didConnect: false, error: nil)
         network.stop()
         stopPeerPruningTask()
     }
@@ -176,13 +176,13 @@ public class Node {
         
         // Calculate transaction value and change, based on the sender's balance and the transaction's value
         // - All utxos for the sender must be spent, and are indivisible.
-        let balance = blockchain.balance(for: sender.address)
+        let balance = blockchain.balance(address: sender.address)
         if value > balance {
-            throw TxError.insufficientBalance
+            throw TxError.insufficientBalance(overdraft: value.distance(to: balance))
         }
         
         // Create a transaction and sign it, making sure first the sender has the right to claim the spendale outputs
-        let spendableOutputs = blockchain.findSpendableOutputs(for: sender.address)
+        let spendableOutputs = blockchain.spendableOutputs(address: sender.address)
         var usedSpendableOutputs = [UnspentTransaction]()
         var spendValue: UInt64 = 0
         for availableSpendableOutput in spendableOutputs {
@@ -192,19 +192,13 @@ public class Node {
                 break
             }
         }
-        if spendValue < value {
-            os_log("Calcluated balance %d does not match sum of spendable outputs - value=%d, spendValue=%d", type: .error, balance, value, spendValue)
-            throw TxError.insufficientBalance
-        }
+//        if spendValue < value {
+//            os_log("Calcluated balance %d does not match sum of spendable outputs - value=%d, spendValue=%d", type: .error, balance, value, spendValue)
+//            throw TxError.insufficientBalance
+//        }
         let change = spendValue - value
         
         guard let signedTxIns = try? sender.sign(utxos: usedSpendableOutputs) else { throw TxError.unverifiedTransaction }
-        for (i, txIn) in signedTxIns.enumerated() {
-            let originalOutputData = usedSpendableOutputs[i].outpoint.hash
-            if !Keysign.verify(publicKey: sender.publicKey, data: originalOutputData, signature: txIn.signature) {
-                throw TxError.unverifiedTransaction
-            }
-        }
         
         // Create the transaction with the correct ins and outs
         var txOuts = [TransactionOutput]()
@@ -214,11 +208,7 @@ public class Node {
         }
         let transaction = Transaction(inputs: signedTxIns, outputs: txOuts, lockTime: UInt32(Date().timeIntervalSince1970))
         // Add it to our mempool
-        mempool.append(transaction)
-        
-        // Update our UTXOs
-        // NOTE: Ideally UTXOs are updated only when a block is mined, but we have to have a way to avoid re-using UTXOs...
-        blockchain.updateSpendableOutputs(with: transaction)
+        try blockchain.blockStore.addTransaction(transaction)
         
         // Inform delegate
         delegate?.node(self, didCreateTransactions: [transaction])
@@ -235,33 +225,27 @@ public class Node {
     /// Attempts to mine the next block, placing Transactions currently in the mempool into the new block
     @discardableResult
     public func mineBlock(minerAddress: Data) throws -> Block {
+        // Do Proof of Work to mine block with all currently registered transactions
+        var transactions = try blockchain.blockStore.mempool()
         // Generate a coinbase tx to reward block miner
         let coinbaseTx = Transaction.coinbase(address: minerAddress, blockValue: blockchain.currentBlockValue())
-        mempool.append(coinbaseTx)
-        
-        // TODO: Implement mining fees
-        
-        // Do Proof of Work to mine block with all currently registered transactions, the create our block
-        let transactions = mempool
+        transactions.append(coinbaseTx)
         let timestamp = UInt32(Date().timeIntervalSince1970)
-        let previousHash = blockchain.lastBlockHash()
+        let previousHash = blockchain.latestBlockHash()
         let proof = blockchain.pow.work(prevHash: previousHash, timestamp: timestamp, transactions: transactions)
         
         // If someone else has mined the next block and we've received it, discard block and clear the corresponding tx from mempool
         // - Note: Despite discarding blocks when we're gotten beat to the punch, there are cases where others have mined the block
         // and sent it to other peers, but it hasn't reached us yet. This will lead to an out of sync state in the network, and we
         // do not have any conflict resolution in place.
-        if blockchain.lastBlockHash() != previousHash {
+        if blockchain.latestBlockHash() != previousHash {
             os_log("Received block while mining, discarding block and clearing mined transactions")
-            let block = blockchain.blocks.last!
-            mempool.removeAll { block.transactions.contains($0) }
             throw MineError.blockAlreadyMined
         }
         
-        // Create the new block
+        // Create the new block, we can now also add our coinbase tx
+        try blockchain.blockStore.addTransaction(coinbaseTx)
         let block = blockchain.createBlock(nonce: proof.nonce, hash: proof.hash, previousHash: previousHash, timestamp: timestamp, transactions: transactions)
-        // Clear mined transactions from the mempool
-        mempool.removeAll { block.transactions.contains($0) }
 
         // Inform delegate
         delegate?.node(self, didCreateBlocks: [block])
@@ -277,13 +261,14 @@ public class Node {
 }
 
 /// Handle incoming messages from the Node Network
+@available(iOS 12.0, OSX 10.14, *)
 extension Node: MessageListenerDelegate {
     public func didReceivePingMessage(_ message: PingMessage, from: NodeAddress) {}
     public func didReceivePongMessage(_ message: PongMessage, from: NodeAddress) {}
     
     public func didReceiveVersionMessage(_ message: VersionMessage, from: NodeAddress) {
         let localVersion = 1
-        let localBlockHeight = blockchain.blocks.count
+        let localBlockHeight = blockchain.currentBlockHeight()
         
         // Ignore nodes running a different blockchain protocol version
         guard message.version == localVersion else {
@@ -295,7 +280,7 @@ extension Node: MessageListenerDelegate {
         // Otherwise, if the remote peer has a shorter chain, respond with our version
         if localBlockHeight < message.blockHeight  {
             os_log("Remote node has longer chain, requesting blocks and transactions", type: .info)
-            network.sendGetBlocks(fromBlockHash: blockchain.lastBlockHash(), to: from)
+            network.sendGetBlocks(fromBlockHash: blockchain.latestBlockHash(), to: from)
             network.sendGetTransactions(to: from)
         } else if localBlockHeight > message.blockHeight {
             os_log("Remote node has shorter chain, sending version", type: .info)
@@ -306,7 +291,10 @@ extension Node: MessageListenerDelegate {
         
         // If we have the longer chain, or same length, consider ourselves connected
         if localBlockHeight >= message.blockHeight {
-            connected = true
+            if !connected {
+                connected = true
+                delegate?.node(self, didConnect: true, error: nil)
+            }
         }
         
         // Central node is responsible for keeping track of all other nodes and dispatching messages between them
@@ -317,6 +305,7 @@ extension Node: MessageListenerDelegate {
     }
     
     public func didReceiveGetTransactionsMessage(_ message: GetTransactionsMessage, from: NodeAddress) {
+        let mempool = try! blockchain.blockStore.mempool()
         network.sendTransactions(transactions: mempool, to: from)
         delegate?.node(self, didSendTransactions: mempool)
     }
@@ -325,10 +314,6 @@ extension Node: MessageListenerDelegate {
         // Verify and add transactions to blockchain
         var verifiedTransactions = [Transaction]()
         for transaction in message.transactions {
-            if mempool.contains(transaction) {
-                os_log("Ignoring duplicate transaction %s", type: .debug, transaction.txId)
-                continue
-            }
             let verifiedInputs = transaction.inputs.filter { input in
                 // TODO: Do we need to look up a local version of the output used, in order to do proper verification?
                 return Keysign.verify(publicKey: input.publicKey, data: input.previousOutput.hash, signature: input.signature)
@@ -336,18 +321,17 @@ extension Node: MessageListenerDelegate {
             if verifiedInputs.count == transaction.inputs.count {
                 os_log("Added transaction %s", type: .info, transaction.txId)
                 verifiedTransactions.append(transaction)
+                // Add verified transactions to mempool
+                do {
+                    try blockchain.blockStore.addTransaction(transaction)
+                } catch {
+                    os_log("Unable to add transaction %s", type: .error, transaction.txId)
+                }
             } else {
                 os_log("Unable to verify transaction %s", type: .debug, transaction.txId)
             }
         }
-        
-        // Add verified transactions to mempool
-        mempool.append(contentsOf: verifiedTransactions)
-        
-        // Update UTXOs
-        // - Note: Ideally UTXOs are updated only when a block is mined, but we have to have a way to avoid re-using UTXOs
-        verifiedTransactions.forEach { self.blockchain.updateSpendableOutputs(with: $0) }
-        
+
         // Inform delegate
         delegate?.node(self, didReceiveTransactions: verifiedTransactions)
         
@@ -360,32 +344,25 @@ extension Node: MessageListenerDelegate {
     }
     
     public func didReceiveGetBlocksMessage(_ message: GetBlocksMessage, from: NodeAddress) {
-        if message.fromBlockHash.isEmpty {
-            network.sendBlocks(blocks: blockchain.blocks, to: from)
-            delegate?.node(self, didSendBlocks: blockchain.blocks)
-        } else if let fromHashIndex = blockchain.blocks.firstIndex(where: { $0.hash == message.fromBlockHash }) {
-            let requestedBlocks = Array<Block>(blockchain.blocks[fromHashIndex...])
-            network.sendBlocks(blocks: requestedBlocks, to: from)
-            delegate?.node(self, didSendBlocks: requestedBlocks)
+        if let blocks = try? blockchain.blockStore.blocks(fromHash: message.fromBlockHash.isEmpty ? nil : message.fromBlockHash), !blocks.isEmpty {
+            network.sendBlocks(blocks: blocks, to: from)
+            delegate?.node(self, didSendBlocks: blocks)
         } else {
             os_log("Unable to satisfy fromBlockHash=%s", type: .debug, message.fromBlockHash.hex)
         }
-        
     }
     
     public func didReceiveBlocksMessage(_ message: BlocksMessage, from: NodeAddress) {
         var validBlocks = [Block]()
         for block in message.blocks {
-            if block.previousHash != blockchain.lastBlockHash() {
+            let latestBlockHash = blockchain.latestBlockHash()
+            if block.previousHash != latestBlockHash {
                 os_log("Received block whose previous hash doesn't match our latest block hash", type: .debug)
                 continue
             }
-            if blockchain.pow.validate(block: block, previousHash: blockchain.lastBlockHash()) {
+            if blockchain.pow.validate(block: block, previousHash: latestBlockHash) {
                 blockchain.createBlock(nonce: block.nonce, hash: block.hash, previousHash: block.previousHash, timestamp: block.timestamp, transactions: block.transactions)
                 validBlocks.append(block)
-                mempool.removeAll { (transaction) -> Bool in
-                    return block.transactions.contains(transaction)
-                }
                 os_log("Added block!", type: .info)
             } else {
                 os_log("Unable to verify block: %s", type: .debug, block.hash.hex)
@@ -393,7 +370,6 @@ extension Node: MessageListenerDelegate {
         }
         
         delegate?.node(self, didReceiveBlocks: validBlocks)
-        connected = true
         
         // Central node is responsible for distributing the new blocks (nodes will handle verification internally)
         if case .central = type {
@@ -402,54 +378,20 @@ extension Node: MessageListenerDelegate {
                     network.sendBlocks(blocks: message.blocks, to: node)
                 }
             }
-        }
-    }
-}
-
-extension Node {
-    public func saveState() {
-        try? UserDefaults.blockchainSwift.set(blockchain, forKey: .blockchain)
-        try? UserDefaults.blockchainSwift.set(mempool, forKey: .transactions)
-    }
-    
-    public func clearState() {
-        UserDefaults.blockchainSwift.clear(forKey: .blockchain)
-        UserDefaults.blockchainSwift.clear(forKey: .transactions)
-    }
-    
-    public static func loadState() -> (blockchain: Blockchain?, mempool: [Transaction]?) {
-        let bc: Blockchain? = UserDefaults.blockchainSwift.get(forKey: .blockchain)
-        let mp: [Transaction]? = UserDefaults.blockchainSwift.get(forKey: .transactions)
-        return (blockchain: bc, mempool: mp)
-    }
-}
-
-extension UserDefaults {
-    public static var blockchainSwift: UserDefaults {
-        return UserDefaults(suiteName: "BlockchainSwift")!
-    }
-    
-    internal enum DataStoreKey: String {
-        case blockchain, transactions, wallet
-    }
-    
-    func set<T: Codable>(_ codable: T, forKey key: DataStoreKey) throws {
-        set(try JSONEncoder().encode(codable), forKey: key.rawValue)
-    }
-
-    func get<T: Codable>(forKey key: DataStoreKey) -> T? {
-        if let data = data(forKey: key.rawValue) {
-            return try? JSONDecoder().decode(T.self, from: data)
         } else {
-            return nil
+            // Other nodes manage their connected state based on the process of receiving blocks from central if it has a longer chain
+            if !connected {
+                if validBlocks.count == message.blocks.count {
+                    connected = true
+                    delegate?.node(self, didConnect: true, error: nil)
+                } else {
+                    connected = false
+                    delegate?.node(self, didConnect: false, error: ConnectionError.blockchainOutOfSync)
+                }
+            }
         }
     }
-    
-    func clear(forKey key: DataStoreKey) {
-        set(nil, forKey: key.rawValue)
-    }
 }
-
 
 class RepeatingTimer {
     let timeInterval: TimeInterval
